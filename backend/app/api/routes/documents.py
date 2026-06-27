@@ -45,12 +45,26 @@ async def _process_file(file_path: str, filename: str, content_type: str, job_id
             
             # Add to Sparse Store (BM25)
             from app.rag.vectorstore.bm25_store import get_bm25_store
+            from app.rag.graph.graph_extractor import extract_and_store_graph
+            import asyncio
+            
             bm25_docs = []
+            graph_tasks = []
+            
             for i, text in enumerate(texts):
-                # Use the deterministic hash we generated in chunker as the ID to sync with Chroma
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
                 bm25_docs.append({"id": doc_id, "text": text})
+                
+                # Extract graph only from the first few chunks to save LLM quota for testing
+                if i < 3: 
+                    parent_text = metadatas[i].get("parent_content", text)
+                    graph_tasks.append(extract_and_store_graph(parent_text))
+                    
             get_bm25_store().add_documents(bm25_docs)
+            
+            # Fire and forget graph extraction tasks
+            if graph_tasks:
+                asyncio.gather(*graph_tasks, return_exceptions=True)
 
             
         await set_cache(f"job:{job_id}", "completed")
@@ -73,11 +87,24 @@ async def _process_url(url: str, job_id: str):
             
             # Add to Sparse Store (BM25)
             from app.rag.vectorstore.bm25_store import get_bm25_store
+            from app.rag.graph.graph_extractor import extract_and_store_graph
+            import asyncio
+            
             bm25_docs = []
+            graph_tasks = []
+            
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
                 bm25_docs.append({"id": doc_id, "text": text})
+                
+                if i < 3: 
+                    parent_text = metadatas[i].get("parent_content", text)
+                    graph_tasks.append(extract_and_store_graph(parent_text))
+                    
             get_bm25_store().add_documents(bm25_docs)
+            
+            if graph_tasks:
+                asyncio.gather(*graph_tasks, return_exceptions=True)
         await set_cache(f"job:{job_id}", "completed")
     except Exception as e:
         await set_cache(f"job:{job_id}", f"failed: {str(e)}")
