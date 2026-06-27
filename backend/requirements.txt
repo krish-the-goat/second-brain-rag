@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+gunicorn
 langchain
 langchain-google-genai
 chromadb

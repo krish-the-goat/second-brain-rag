@@ -9,8 +9,15 @@ _client = None
 def get_client() -> chromadb.ClientAPI:
     global _client
     if _client is None:
-        persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
-        _client = chromadb.PersistentClient(path=persist_dir, settings=Settings(anonymized_telemetry=False))
+        # In production with docker-compose, connect to the chroma container
+        chroma_host = os.getenv("CHROMA_HOST", "chroma")
+        chroma_port = int(os.getenv("CHROMA_PORT", "8000"))
+        try:
+            _client = chromadb.HttpClient(host=chroma_host, port=chroma_port, settings=Settings(anonymized_telemetry=False))
+        except Exception:
+            # Fallback to local if running script directly without docker
+            persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
+            _client = chromadb.PersistentClient(path=persist_dir, settings=Settings(anonymized_telemetry=False))
     return _client
     
 def get_collection():

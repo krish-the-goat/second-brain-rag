@@ -8,14 +8,13 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    volumes:
-      - chroma_data:/app/chroma_data
-      - neo4j_data:/app/neo4j_data # Wait, Neo4j is a separate container, backend doesn't mount neo4j_data, it mounts chroma_data for the local DB.
+    # No volumes needed for backend since DBs are external containers
     networks:
       - rag_network
     depends_on:
       - neo4j
       - redis
+      - chroma
 
   frontend:
     build: 
@@ -38,6 +37,16 @@ services:
       - neo4j_data:/data
     networks:
       - rag_network
+
+  chroma:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - rag_network
+    environment:
+      - IS_PERSISTENT=TRUE
 
   redis:
     image: redis:alpine
