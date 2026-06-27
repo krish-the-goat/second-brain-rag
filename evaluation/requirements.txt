@@ -1,0 +1,6 @@
+ragas
+datasets
+rich
+numpy
+# And standard backend dependencies that are used for pipeline parsing
+-r ../backend/requirements.txt

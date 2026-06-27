@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "second-brain-rag"
+version = "0.1.0"
+description = "Second Brain RAG API"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "langchain",
+    "langchain-google-genai",
+    "chromadb",
+    "google-generativeai",
+    "pypdf2",
+    "pdfplumber",
+    "python-docx",
+    "beautifulsoup4",
+    "requests",
+    "slowapi",
+    "python-jose[cryptography]",
+    "structlog",
+    "pydantic-settings",
+    "aiofiles",
+    "aioredis",
+    "python-multipart"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff"
+]
+
+[tool.ruff]
+line-length = 88

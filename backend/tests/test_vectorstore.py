@@ -1,0 +1,73 @@
+import pytest
+from unittest.mock import patch, AsyncMock, MagicMock
+import chromadb
+
+from app.rag.vectorstore.chroma_store import add_documents, query, delete_document, list_documents, get_stats
+
+@pytest.fixture
+def mock_chroma_client():
+    client = chromadb.EphemeralClient()
+    with patch("app.rag.vectorstore.chroma_store.get_client", return_value=client):
+        yield client
+        
+@pytest.mark.asyncio
+async def test_chroma_store_cycle(mock_chroma_client):
+    # 1. Add Documents
+    docs = ["Hello world", "This is a test"]
+    embeddings = [[0.1, 0.1], [0.2, 0.2]]
+    metadatas = [
+        {"hash": "hash1", "doc_id": "doc1", "filename": "file1.txt"},
+        {"hash": "hash2", "doc_id": "doc1", "filename": "file1.txt"}
+    ]
+    
+    await add_documents(docs, embeddings, metadatas)
+    
+    # Verify stats
+    stats = get_stats()
+    assert stats["total_chunks"] == 2
+    assert stats["total_docs"] == 1
+    
+    # 2. Add same documents again (should skip because of same hash/doc_id combination)
+    await add_documents(docs, embeddings, metadatas)
+    stats = get_stats()
+    assert stats["total_chunks"] == 2
+    
+    # 3. Query
+    results = await query([0.1, 0.1], n_results=1, score_threshold=0.5)
+    assert len(results) == 1
+    assert results[0]["text"] == "Hello world"
+    assert results[0]["score"] > 0.9
+    
+    # 4. List Documents
+    doc_list = await list_documents()
+    assert len(doc_list) == 1
+    assert doc_list[0]["doc_id"] == "doc1"
+    assert doc_list[0]["chunk_count"] == 2
+    
+    # 5. Delete Document
+    await delete_document("doc1")
+    stats_after = get_stats()
+    assert stats_after["total_chunks"] == 0
+    assert stats_after["total_docs"] == 0
+
+@pytest.mark.asyncio
+@patch("app.rag.embeddings.gemini_embedder._get_redis_client", new_callable=AsyncMock)
+async def test_gemini_embedder_cache(mock_redis):
+    from app.rag.embeddings.gemini_embedder import embed_documents
+    mock_redis.return_value = None # Use local dict cache
+    
+    with patch("app.rag.embeddings.gemini_embedder.GoogleGenerativeAIEmbeddings") as MockEmbedder:
+        instance = MockEmbedder.return_value
+        instance.aembed_documents = AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]])
+        
+        texts = ["Text 1", "Text 2"]
+        result1 = await embed_documents(texts)
+        assert len(result1) == 2
+        assert result1[0] == [0.1, 0.2]
+        
+        # Call again, should hit cache
+        instance.aembed_documents.reset_mock()
+        result2 = await embed_documents(texts)
+        assert len(result2) == 2
+        assert result2[0] == [0.1, 0.2]
+        instance.aembed_documents.assert_not_called()

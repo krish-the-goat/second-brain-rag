@@ -1,0 +1,43 @@
+name: Evaluation Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  ragas-eval:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+        pip install -r evaluation/requirements.txt
+        
+    - name: Run RAGAS Evaluation
+      env:
+        # Note: we use GEMINI_API_KEY because the backend is configured for Gemini.
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        RAGAS_MIN_FAITHFULNESS: "0.80"
+        RAGAS_MIN_RELEVANCY: "0.75"
+        RAGAS_MIN_PRECISION: "0.70"
+        RAGAS_MIN_RECALL: "0.70"
+      run: |
+        export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
+        python evaluation/ragas_eval.py
+        
+    - name: Upload Evaluation Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ragas-evaluation-report
+        path: evaluation/reports/
