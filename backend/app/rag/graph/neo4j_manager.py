@@ -1,4 +1,5 @@
 import os
+import re
 from neo4j import GraphDatabase
 from app.core.logging import get_logger
 
@@ -24,8 +25,14 @@ class Neo4jManager:
     def add_entity(self, label: str, name: str, description: str = ""):
         if not self.driver:
             return
+            
+        # CRITICAL FIX: Cypher Injection protection
+        clean_label = re.sub(r'[^a-zA-Z0-9_]', '', label)
+        if not clean_label:
+            clean_label = "Entity"
+            
         query = (
-            f"MERGE (e:{label} {{name: $name}}) "
+            f"MERGE (e:{clean_label} {{name: $name}}) "
             "ON CREATE SET e.description = $description "
             "RETURN e"
         )
@@ -35,12 +42,16 @@ class Neo4jManager:
     def add_relationship(self, source_name: str, target_name: str, relationship_type: str, context: str = ""):
         if not self.driver:
             return
-        # Using uppercase for relationship types is standard in Neo4j
-        rel_type = relationship_type.upper().replace(" ", "_")
+            
+        # CRITICAL FIX: Cypher Injection protection
+        clean_type = re.sub(r'[^a-zA-Z0-9_]', '', relationship_type.upper().replace(" ", "_"))
+        if not clean_type:
+            clean_type = "RELATED_TO"
+            
         query = (
             "MATCH (a {name: $source}) "
             "MATCH (b {name: $target}) "
-            f"MERGE (a)-[r:{rel_type}]->(b) "
+            f"MERGE (a)-[r:{clean_type}]->(b) "
             "ON CREATE SET r.context = $context "
             "RETURN type(r)"
         )
