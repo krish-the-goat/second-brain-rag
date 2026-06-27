@@ -105,11 +105,9 @@ export default function FileUpload() {
   };
 
   return (
-    <div className="w-full">
+    <div style={{ width: '100%' }}>
       <div 
-        className={`relative border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center transition-colors cursor-pointer
-          ${dragActive ? 'border-brand bg-brand/10' : 'border-gray-600 hover:border-gray-500 bg-surface'}
-        `}
+        className={`dropzone ${dragActive ? 'active' : ''}`}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
@@ -119,39 +117,43 @@ export default function FileUpload() {
         <input 
           ref={fileInputRef}
           type="file" 
-          className="hidden" 
+          style={{ display: 'none' }}
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={handleChange}
         />
         
-        <UploadCloud className={`w-12 h-12 mb-4 ${dragActive ? 'text-brand' : 'text-gray-400'}`} />
-        <p className="text-lg font-medium text-gray-200">Drag and drop your file here</p>
-        <p className="text-sm text-gray-400 mt-2">Supports PDF and DOCX up to {MAX_SIZE_MB}MB</p>
+        <UploadCloud className="dropzone-icon" size={48} />
+        <p style={{ fontSize: '1.1rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+          Drag and drop your file here
+        </p>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          Supports PDF and DOCX up to {MAX_SIZE_MB}MB
+        </p>
         
         {uploadMutation.isPending && (
-          <div className="w-full max-w-xs mt-6">
-            <div className="flex justify-between text-xs mb-1 text-gray-400">
+          <div style={{ width: '100%', maxWidth: '300px', margin: '1.5rem auto 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
               <span>Uploading...</span>
               <span>{progress}%</span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-2">
-              <div className="bg-brand h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+            <div style={{ width: '100%', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '99px', height: '8px' }}>
+              <div style={{ backgroundColor: 'var(--accent-primary)', height: '8px', borderRadius: '99px', width: `${progress}%`, transition: 'width 0.3s ease' }}></div>
             </div>
           </div>
         )}
       </div>
 
       {error && (
-        <div className="mt-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg flex items-center text-red-400 text-sm">
-          <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
-          {error}
+        <div className="error-box" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <AlertCircle size={16} />
+          <span>{error}</span>
         </div>
       )}
 
       {successStatus && (
-        <div className="mt-4 p-3 bg-green-900/30 border border-green-500/50 rounded-lg flex items-center text-green-400 text-sm">
-          <CheckCircle2 className="w-4 h-4 mr-2 flex-shrink-0" />
-          Upload complete. Status: Processing...
+        <div style={{ background: 'rgba(0, 245, 212, 0.1)', border: '1px solid rgba(0, 245, 212, 0.3)', color: 'var(--accent-secondary)', padding: '1rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <CheckCircle2 size={16} />
+          <span>Upload complete. Status: Processing...</span>
         </div>
       )}
     </div>

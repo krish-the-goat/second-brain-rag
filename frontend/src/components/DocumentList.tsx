@@ -54,53 +54,34 @@ export default function DocumentList() {
 
   if (docs.length === 0) {
     return (
-      <div className="text-center py-12 bg-surface rounded-xl border border-gray-800">
-        <FileText className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-200">No documents yet</h3>
-        <p className="text-gray-400 mt-2">Upload your first document to get started.</p>
+      <div style={{ textAlign: 'center', padding: '3rem 1rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-xl)', border: 'var(--glass-border)' }}>
+        <FileText size={48} style={{ color: 'var(--text-muted)', margin: '0 auto 1rem' }} />
+        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No documents yet</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>Upload your first document to get started.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-surface rounded-xl border border-gray-800 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm text-gray-300">
-          <thead className="bg-gray-800/50 text-gray-400 text-xs uppercase font-semibold">
-            <tr>
-              <th className="px-6 py-4">Name</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Chunks</th>
-              <th className="px-6 py-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800">
-            {docs.map((doc) => (
-              <tr key={doc.doc_id} className="hover:bg-gray-800/20 transition-colors">
-                <td className="px-6 py-4 font-medium flex items-center">
-                  <FileText className="w-4 h-4 mr-2 text-brand" />
-                  {doc.filename}
-                </td>
-                <td className="px-6 py-4">
-                  <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded-full text-xs font-medium border border-green-500/20">
-                    Ready
-                  </span>
-                </td>
-                <td className="px-6 py-4">{doc.chunk_count}</td>
-                <td className="px-6 py-4">
-                  <button 
-                    onClick={() => handleDelete(doc.doc_id, doc.filename)}
-                    className="text-gray-500 hover:text-red-400 transition-colors"
-                    title="Delete document"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      {docs.map((doc) => (
+        <div key={doc.doc_id} className="doc-card">
+          <div className="doc-icon">
+            <FileText size={24} />
+          </div>
+          <div className="doc-info" style={{ flex: 1 }}>
+            <h4>{doc.filename}</h4>
+            <p>{doc.chunk_count} chunks • Indexed successfully</p>
+          </div>
+          <button 
+            onClick={() => handleDelete(doc.doc_id, doc.filename)}
+            className="delete-btn"
+            title="Delete document"
+          >
+            <Trash2 size={18} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

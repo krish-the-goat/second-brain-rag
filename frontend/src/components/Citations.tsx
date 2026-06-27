@@ -18,38 +18,40 @@ export default function Citations({ citations }: CitationsProps) {
   if (!citations || citations.length === 0) return null;
 
   return (
-    <div className="mt-3">
+    <div style={{ marginTop: '0.75rem' }}>
       <button 
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center text-xs text-gray-400 hover:text-brand transition-colors font-medium"
+        style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}
       >
-        {expanded ? <ChevronDown className="w-4 h-4 mr-1" /> : <ChevronRight className="w-4 h-4 mr-1" />}
+        {expanded ? <ChevronDown size={14} style={{ marginRight: '4px' }} /> : <ChevronRight size={14} style={{ marginRight: '4px' }} />}
         Sources ({citations.length})
       </button>
 
       {expanded && (
-        <div className="mt-3 grid gap-2">
+        <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.5rem' }}>
           {citations.map((cite, idx) => {
             const pct = Math.round(cite.score * 100);
             return (
-              <div key={idx} className="bg-gray-800/40 border border-gray-700/50 rounded-lg p-3 text-sm flex flex-col">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center text-brand font-medium">
-                    <FileText className="w-3.5 h-3.5 mr-1.5" />
-                    <span className="truncate max-w-[180px]">{cite.filename}</span>
+              <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '0.75rem', fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', color: 'var(--accent-secondary)', fontWeight: 500 }}>
+                    <FileText size={14} style={{ marginRight: '6px' }} />
+                    <span>{cite.filename}</span>
                     {cite.page_number && (
-                      <span className="text-gray-500 text-xs ml-2 flex items-center">
-                        <LayoutTemplate className="w-3 h-3 mr-1" /> p. {cite.page_number}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginLeft: '0.5rem', display: 'flex', alignItems: 'center' }}>
+                        <LayoutTemplate size={12} style={{ marginRight: '4px' }} /> p. {cite.page_number}
                       </span>
                     )}
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    pct > 80 ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'
-                  }`}>
+                  <span style={{ 
+                    fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '99px',
+                    background: pct > 80 ? 'rgba(0, 245, 212, 0.1)' : 'rgba(157, 78, 221, 0.1)',
+                    color: pct > 80 ? 'var(--accent-secondary)' : 'var(--accent-primary)'
+                  }}>
                     {pct}% match
                   </span>
                 </div>
-                <p className="text-gray-300 text-xs italic opacity-90 line-clamp-3">"{cite.excerpt}..."</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontStyle: 'italic', opacity: 0.9 }}>"{cite.excerpt}..."</p>
               </div>
             );
           })}
