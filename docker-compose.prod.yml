@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - chroma_data:/app/chroma_data
+      - neo4j_data:/app/neo4j_data # Wait, Neo4j is a separate container, backend doesn't mount neo4j_data, it mounts chroma_data for the local DB.
+    networks:
+      - rag_network
+    depends_on:
+      - neo4j
+      - redis
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - rag_network
+    depends_on:
+      - backend
+
+  neo4j:
+    image: neo4j:latest
+    restart: unless-stopped
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - rag_network
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    networks:
+      - rag_network
+    volumes:
+      - redis_data:/data
+
+networks:
+  rag_network:
+    driver: bridge
+
+volumes:
+  neo4j_data:
+  chroma_data:
+  redis_data:
