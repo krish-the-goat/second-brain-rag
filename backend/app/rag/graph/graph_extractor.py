@@ -1,15 +1,11 @@
 import os
 import json
+import httpx
 from typing import List, Dict
-import google.generativeai as genai
 from app.rag.graph.neo4j_manager import get_neo4j_manager
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-
-# Initialize Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-2.5-flash')
 
 PROMPT = """
 You are a highly intelligent Knowledge Graph extractor.
@@ -28,40 +24,61 @@ If no relevant entities are found, return empty lists.
 
 async def extract_and_store_graph(text: str):
     """
-    Extracts graph data from text using LLM and stores it in Neo4j.
-    NOTE: Due to LLM quota constraints, this should only be called on highly dense/important chunks, 
-    or batched appropriately in production.
+    Extracts graph data from text using OpenRouter LLM and stores it in Neo4j.
     """
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        logger.error("No OpenRouter API key found.")
+        return
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "http://localhost:5173",
+        "X-Title": "Second Brain RAG",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "google/gemini-2.5-flash", 
+        "messages": [
+            {"role": "system", "content": PROMPT},
+            {"role": "user", "content": f"Text:\n{text}"}
+        ],
+        "response_format": {"type": "json_object"}
+    }
+
     try:
-        response = model.generate_content(
-            f"{PROMPT}\n\nText:\n{text}",
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30.0
             )
-        )
-        
-        data = json.loads(response.text)
-        
-        manager = get_neo4j_manager()
-        
-        # Insert Entities
-        for entity in data.get("entities", []):
-            manager.add_entity(
-                label=entity.get("type", "Entity").replace(" ", ""),
-                name=entity.get("name"),
-                description=entity.get("description", "")
-            )
+            response.raise_for_status()
+            result_json = response.json()
             
-        # Insert Relationships
-        for rel in data.get("relationships", []):
-            manager.add_relationship(
-                source_name=rel.get("source"),
-                target_name=rel.get("target"),
-                relationship_type=rel.get("type"),
-                context=rel.get("context", "")
-            )
+            content = result_json["choices"][0]["message"]["content"]
+            data = json.loads(content)
             
-        logger.info(f"Extracted and stored {len(data.get('entities', []))} entities and {len(data.get('relationships', []))} relationships.")
-        
+            manager = get_neo4j_manager()
+            
+            for entity in data.get("entities", []):
+                manager.add_entity(
+                    label=entity.get("type", "Entity").replace(" ", ""),
+                    name=entity.get("name"),
+                    description=entity.get("description", "")
+                )
+                
+            for rel in data.get("relationships", []):
+                manager.add_relationship(
+                    source_name=rel.get("source"),
+                    target_name=rel.get("target"),
+                    relationship_type=rel.get("type"),
+                    context=rel.get("context", "")
+                )
+                
+            logger.info(f"Extracted and stored {len(data.get('entities', []))} entities and {len(data.get('relationships', []))} relationships via OpenRouter.")
+            
     except Exception as e:
         logger.error(f"Graph extraction failed: {e}")
