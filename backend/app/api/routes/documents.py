@@ -9,7 +9,7 @@ from app.rag.loaders.pdf_loader import load_pdf
 from app.rag.loaders.docx_loader import load_docx
 from app.rag.loaders.web_loader import load_web
 from app.rag.chunkers.recursive_chunker import chunk_documents
-from app.rag.embeddings.gemini_embedder import embed_documents
+from app.rag.embeddings.local_embedder import embed_documents
 from app.rag.vectorstore.chroma_store import add_documents, list_documents, delete_document
 from app.core.exceptions import UnsupportedFormatError, DocumentTooLargeError
 from app.core.cache import get_cache, set_cache

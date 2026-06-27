@@ -1,6 +1,6 @@
 from typing import List, Dict, Tuple
 from app.rag.vectorstore.chroma_store import query as chroma_query
-from app.rag.embeddings.gemini_embedder import embed_documents
+from app.rag.embeddings.local_embedder import embed_documents
 from app.rag.vectorstore.bm25_store import get_bm25_store
 from sentence_transformers import CrossEncoder
 import structlog

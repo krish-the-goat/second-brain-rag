@@ -33,7 +33,7 @@ jobs:
         RAGAS_MIN_RECALL: "0.70"
       run: |
         export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
-        python evaluation/ragas_eval.py
+        python evaluation/custom_eval.py
         
     - name: Upload Evaluation Report
       if: always()

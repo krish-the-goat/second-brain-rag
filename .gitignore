@@ -45,6 +45,7 @@ yarn-error.log*
 # Vector Database
 chroma_db/
 backend/chroma_db/
+backend/chroma_data_test/
 
 # Evaluation Reports
 evaluation/reports/

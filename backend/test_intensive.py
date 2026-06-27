@@ -28,7 +28,7 @@ async def run_intensive_test():
         
         # 2. Test Local Embeddings
         logger.info("Testing Local Embeddings...")
-        from app.rag.embeddings.gemini_embedder import embed_documents
+        from app.rag.embeddings.local_embedder import embed_documents
         embeddings = await embed_documents(texts)
         assert len(embeddings) == len(texts), "Embeddings count mismatch"
         logger.info("Embeddings generated successfully.")

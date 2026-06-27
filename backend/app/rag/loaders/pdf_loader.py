@@ -4,7 +4,7 @@ from typing import List, Optional
 import PyPDF2
 import pdfplumber
 from langchain_core.documents import Document
-from app.core.exceptions import ProcessingError, UnsupportedFormatError
+from app.core.exceptions import ProcessingError, UnsupportedFormatError, DocumentTooLargeError
 
 def _process_pdf_sync(file_path: str) -> List[Document]:
     documents = []

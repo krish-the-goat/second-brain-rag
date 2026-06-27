@@ -17,7 +17,7 @@ function App() {
         <header className="header">
           <div className="brand">
             <BrainCircuit className="brand-icon" size={32} />
-            <span className="text-gradient">OmniSync RAG</span>
+            <span className="text-gradient">Second Brain RAG</span>
           </div>
           {/* Add optional right side controls (like theme toggle or user profile) if needed later */}
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
