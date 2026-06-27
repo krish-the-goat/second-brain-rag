@@ -32,7 +32,7 @@ services:
     image: neo4j:latest
     restart: unless-stopped
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-secretpassword}
     volumes:
       - neo4j_data:/data
     networks:

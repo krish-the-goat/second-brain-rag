@@ -3,7 +3,8 @@ import time
 import uuid
 import structlog
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Security, HTTPException, status, Depends
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -40,6 +41,16 @@ app = FastAPI(title="Second Brain RAG API", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+API_KEY = os.getenv("API_KEY", "default-secret-key-change-in-prod")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def verify_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Could not validate API Key"
+        )
+
 
 origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
@@ -117,8 +128,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(health.router)
 app.include_router(metrics.router)
-app.include_router(documents.router)
-app.include_router(chat.router)
+app.include_router(documents.router, dependencies=[Depends(verify_api_key)])
+app.include_router(chat.router, dependencies=[Depends(verify_api_key)])
 
 @app.get("/")
 async def root(request: Request):

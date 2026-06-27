@@ -45,7 +45,8 @@ export default function ChatInterface() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'X-API-Key': import.meta.env.VITE_API_KEY || 'default-secret-key-change-in-prod'
         },
         body: JSON.stringify(payload)
       });

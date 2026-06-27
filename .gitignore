@@ -60,3 +60,4 @@ evaluation/benchmark_results.json
 # MacOS
 .DS_Store
 backend/chroma_data/
+graphify-out/
