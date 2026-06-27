@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 COPY requirements.txt .
+RUN apt-get update && apt-get install -y libmagic1 && rm -rf /var/lib/apt/lists/*
 RUN if [ "$(uname -m)" = "x86_64" ] || [ "$(uname -m)" = "amd64" ]; then \
         pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt; \
     else \

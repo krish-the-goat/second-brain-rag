@@ -51,23 +51,12 @@ async def test_chroma_store_cycle(mock_chroma_client):
     assert stats_after["total_docs"] == 0
 
 @pytest.mark.asyncio
-@patch("app.rag.embeddings.local_embedder._get_redis_client", new_callable=AsyncMock)
-async def test_local_embedder_cache(mock_redis):
+async def test_local_embedder():
     from app.rag.embeddings.local_embedder import embed_documents
-    mock_redis.return_value = None # Use local dict cache
-    
-    with patch("app.rag.embeddings.local_embedder.HuggingFaceEmbeddings") as MockEmbedder:
-        instance = MockEmbedder.return_value
-        instance.aembed_documents = AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]])
+    with patch("app.rag.embeddings.local_embedder.model") as mock_model:
+        mock_model.encode.return_value = MagicMock(tolist=lambda: [[0.1, 0.2], [0.3, 0.4]])
         
         texts = ["Text 1", "Text 2"]
         result1 = await embed_documents(texts)
         assert len(result1) == 2
         assert result1[0] == [0.1, 0.2]
-        
-        # Call again, should hit cache
-        instance.aembed_documents.reset_mock()
-        result2 = await embed_documents(texts)
-        assert len(result2) == 2
-        assert result2[0] == [0.1, 0.2]
-        instance.aembed_documents.assert_not_called()

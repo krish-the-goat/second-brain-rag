@@ -25,3 +25,6 @@ rank_bm25
 sentence-transformers
 neo4j
 networkx
+python-magic
+langchain-text-splitters
+tiktoken

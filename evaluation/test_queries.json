@@ -1,0 +1,14 @@
+[
+  {
+    "type": "factual",
+    "question": "What is the core mission of Acme Corp?",
+    "ground_truth_answer": "To build the world's most robust anvils.",
+    "expected_source_filename": "sample_1_acme_handbook.pdf"
+  },
+  {
+    "type": "factual",
+    "question": "What is Project Quantum replacing?",
+    "ground_truth_answer": "It is replacing the legacy Memcached cluster with a globally distributed Redis enterprise deployment.",
+    "expected_source_filename": "sample_2_quantum_specs.pdf"
+  }
+]

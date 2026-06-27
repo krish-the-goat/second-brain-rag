@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 
 from app.rag.pipeline import pipeline
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -12,19 +13,21 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatRequest(BaseModel):
-    question: str
-    chat_history: List[ChatMessage] = []
+    question: str = Field(..., min_length=1, max_length=2000)
+    chat_history: List[ChatMessage] = Field(default=[], max_length=20)
 
 @router.post("")
-async def chat(request: ChatRequest, req: Request):
-    history = [msg.model_dump() for msg in request.chat_history]
-    result = await pipeline.ask(request.question, history)
+@limiter.limit("5/minute")
+async def chat(body: ChatRequest, request: Request):
+    history = [msg.model_dump() for msg in body.chat_history]
+    result = await pipeline.ask(body.question, history)
     return result
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest, req: Request):
-    history = [msg.model_dump() for msg in request.chat_history]
+@limiter.limit("5/minute")
+async def chat_stream(body: ChatRequest, request: Request):
+    history = [msg.model_dump() for msg in body.chat_history]
     return StreamingResponse(
-        pipeline.ask_stream(request.question, history), 
+        pipeline.ask_stream(body.question, history), 
         media_type="text/event-stream"
     )

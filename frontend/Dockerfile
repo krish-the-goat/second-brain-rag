@@ -20,8 +20,8 @@ RUN rm -rf /usr/share/nginx/html/*
 # Copy static assets from builder stage
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy our custom nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy our custom nginx configuration as a template for envsubst
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 # Expose port 80
 EXPOSE 80

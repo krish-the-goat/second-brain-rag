@@ -41,13 +41,18 @@ export default function ChatInterface() {
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      };
+      
+      if (import.meta.env.DEV) {
+        headers['X-API-Key'] = import.meta.env.VITE_API_KEY || 'default-secret-key-change-in-prod';
+      }
+
       const response = await fetch(`${baseUrl}/chat/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-          'X-API-Key': import.meta.env.VITE_API_KEY || 'default-secret-key-change-in-prod'
-        },
+        headers,
         body: JSON.stringify(payload)
       });
 

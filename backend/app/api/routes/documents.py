@@ -2,7 +2,7 @@ import os
 import uuid
 import tempfile
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl, Field
 from typing import Dict, Any
 
 from app.rag.loaders.pdf_loader import load_pdf
@@ -13,11 +13,12 @@ from app.rag.embeddings.local_embedder import embed_documents
 from app.rag.vectorstore.chroma_store import add_documents, list_documents, delete_document
 from app.core.exceptions import UnsupportedFormatError, DocumentTooLargeError
 from app.core.cache import get_cache, set_cache
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 class URLUploadRequest(BaseModel):
-    url: str
+    url: HttpUrl = Field(..., max_length=2048)
 
 async def _process_file(file_path: str, filename: str, content_type: str, job_id: str):
     await set_cache(f"job:{job_id}", "processing")
@@ -110,10 +111,13 @@ async def _process_url(url: str, job_id: str):
         await set_cache(f"job:{job_id}", f"failed: {str(e)}")
 
 @router.post("/upload")
+@limiter.limit("3/minute")
 async def upload_document(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    import magic
     max_size = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024
     
-    if not file.filename.endswith((".pdf", ".docx")):
+    safe_filename = os.path.basename(file.filename)
+    if not safe_filename.endswith((".pdf", ".docx")):
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
         
     job_id = str(uuid.uuid4())
@@ -130,18 +134,24 @@ async def upload_document(request: Request, background_tasks: BackgroundTasks, f
                     raise DocumentTooLargeError(f"File exceeds max size of {max_size} bytes")
                 f.write(chunk)
         os.close(fd)
+        
+        mime = magic.from_file(temp_path, mime=True)
+        if mime not in ("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+            os.remove(temp_path)
+            raise HTTPException(status_code=400, detail="Invalid file type detected.")
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
         raise e
         
-    background_tasks.add_task(_process_file, temp_path, file.filename, file.content_type, job_id)
+    background_tasks.add_task(_process_file, temp_path, safe_filename, file.content_type, job_id)
     return {"job_id": job_id, "status": "processing"}
 
 @router.post("/url")
-async def upload_url(request: URLUploadRequest, background_tasks: BackgroundTasks, req: Request):
+@limiter.limit("2/minute")
+async def upload_url(body: URLUploadRequest, background_tasks: BackgroundTasks, request: Request):
     job_id = str(uuid.uuid4())
-    background_tasks.add_task(_process_url, request.url, job_id)
+    background_tasks.add_task(_process_url, str(body.url), job_id)
     return {"job_id": job_id, "status": "processing"}
 
 @router.get("")

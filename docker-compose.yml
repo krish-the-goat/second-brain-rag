@@ -14,6 +14,7 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:8000
+      - API_KEY=${API_KEY}
 
   neo4j:
     image: neo4j:latest
@@ -21,11 +22,12 @@ services:
       - "7474:7474" # HTTP
       - "7687:7687" # Bolt
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-strongpassword}
     volumes:
       - ./backend/neo4j_data:/data
 
   redis:
     image: redis:alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-strongpassword}
     ports:
       - "6379:6379"

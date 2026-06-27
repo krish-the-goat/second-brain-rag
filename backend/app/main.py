@@ -2,24 +2,24 @@ import os
 import time
 import uuid
 import structlog
+import secrets
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Security, HTTPException, status, Depends
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from app.api.routes import documents, chat, health, metrics
 from app.core.exceptions import ProcessingError, UnsupportedFormatError, DocumentTooLargeError, ScrapingError
 from app.core.logging import setup_logging
 from app.core.cache import init_cache, close_cache, increment_metric, get_metric
+from app.core.rate_limit import limiter
 
 # Initialize structlog first
 setup_logging()
 logger = structlog.get_logger(__name__)
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,22 +41,25 @@ app = FastAPI(title="Second Brain RAG API", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
-API_KEY = os.getenv("API_KEY", "default-secret-key-change-in-prod")
+API_KEY = os.getenv("API_KEY")
+if not API_KEY or API_KEY == "default-secret-key-change-in-prod":
+    raise RuntimeError("Set a strong API_KEY in environment before starting.")
+
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 async def verify_api_key(api_key_header: str = Security(api_key_header)):
-    if api_key_header != API_KEY:
+    if not api_key_header or not secrets.compare_digest(api_key_header, API_KEY):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Could not validate API Key"
         )
 
-
-origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -127,7 +130,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     return build_rfc_7807(500, "Internal Server Error", "An unexpected error occurred.", request)
 
 app.include_router(health.router)
-app.include_router(metrics.router)
+app.include_router(metrics.router, dependencies=[Depends(verify_api_key)])
 app.include_router(documents.router, dependencies=[Depends(verify_api_key)])
 app.include_router(chat.router, dependencies=[Depends(verify_api_key)])
 

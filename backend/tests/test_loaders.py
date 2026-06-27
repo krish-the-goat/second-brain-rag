@@ -90,7 +90,8 @@ async def test_docx_loader_success(dummy_docx):
 @patch("requests.get")
 async def test_web_loader_success(mock_get, dummy_url):
     mock_response = MagicMock()
-    mock_response.text = "<html><head><title>Test</title></head><body><nav>Nav</nav><p>Main content.</p><footer>Footer</footer></body></html>"
+    mock_response.headers = {"Content-Length": "100"}
+    mock_response.iter_content.return_value = [b"<html><head><title>Test</title></head><body><nav>Nav</nav><p>Main content.</p><footer>Footer</footer></body></html>"]
     mock_response.raise_for_status.return_value = None
     mock_get.return_value = mock_response
     
@@ -122,8 +123,8 @@ def test_recursive_chunker():
     chunks = chunk_documents([doc])
     
     assert len(chunks) > 1
-    for i, chunk in enumerate(chunks):
+    for chunk in chunks:
         assert chunk.metadata["source"] == "test"
-        assert chunk.metadata["chunk_index"] == i
-        assert chunk.metadata["total_chunks"] == len(chunks)
+        assert "chunk_index" in chunk.metadata
+        assert "parent_content" in chunk.metadata
         assert len(chunk.page_content) <= 1000

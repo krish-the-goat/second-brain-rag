@@ -14,6 +14,11 @@ async def init_cache():
         try:
             import aioredis
             redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+            redis_password = os.getenv("REDIS_PASSWORD")
+            
+            if redis_password and "@" not in redis_url:
+                redis_url = redis_url.replace("redis://", f"redis://:{redis_password}@")
+                
             _redis_client = await aioredis.from_url(redis_url, decode_responses=True)
             await _redis_client.ping()
             logger.info("Redis cache initialized")

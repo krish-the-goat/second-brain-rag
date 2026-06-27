@@ -12,8 +12,16 @@ def get_client() -> chromadb.ClientAPI:
         # In production with docker-compose, connect to the chroma container
         chroma_host = os.getenv("CHROMA_HOST", "chroma")
         chroma_port = int(os.getenv("CHROMA_PORT", "8000"))
+        chroma_token = os.getenv("CHROMA_AUTH_TOKEN")
         try:
-            _client = chromadb.HttpClient(host=chroma_host, port=chroma_port, settings=Settings(anonymized_telemetry=False))
+            client_settings = Settings(anonymized_telemetry=False)
+            if chroma_token:
+                client_settings = Settings(
+                    anonymized_telemetry=False,
+                    chroma_client_auth_provider="chromadb.auth.token.TokenAuthClientProvider",
+                    chroma_client_auth_credentials=chroma_token
+                )
+            _client = chromadb.HttpClient(host=chroma_host, port=chroma_port, settings=client_settings)
         except Exception:
             # Fallback to local if running script directly without docker
             persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")

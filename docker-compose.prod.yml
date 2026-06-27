@@ -23,6 +23,8 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    environment:
+      - API_KEY=${API_KEY}
     networks:
       - rag_network
     depends_on:
@@ -47,10 +49,14 @@ services:
       - rag_network
     environment:
       - IS_PERSISTENT=TRUE
+      - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.token.TokenAuthServerProvider
+      - CHROMA_SERVER_AUTH_CREDENTIALS_FILE=/chroma/auth.json
+      - CHROMA_SERVER_AUTH_CREDENTIALS=${CHROMA_AUTH_TOKEN:-default-strong-token}
 
   redis:
     image: redis:alpine
     restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-strongpassword}
     networks:
       - rag_network
     volumes:

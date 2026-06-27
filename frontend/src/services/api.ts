@@ -10,8 +10,9 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-  // Add API Key for backend auth
-  config.headers['X-API-Key'] = import.meta.env.VITE_API_KEY || 'default-secret-key-change-in-prod';
+  if (import.meta.env.DEV) {
+    config.headers['X-API-Key'] = import.meta.env.VITE_API_KEY || 'default-secret-key-change-in-prod';
+  }
   return config;
 });
 

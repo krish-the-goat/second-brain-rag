@@ -70,6 +70,7 @@ class RAGPipeline:
         
         logger.info("RAG Query Executed",
                     question_length=len(question),
+                    question_hash=hashlib.sha256(question.encode()).hexdigest()[:8],
                     retrieval_count=len(context_results),
                     avg_score=avg_score,
                     tokens_used=tokens_used,
