@@ -24,3 +24,8 @@ services:
       - NEO4J_AUTH=neo4j/password
     volumes:
       - ./backend/neo4j_data:/data
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
