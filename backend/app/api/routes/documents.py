@@ -38,8 +38,20 @@ async def _process_file(file_path: str, filename: str, content_type: str, job_id
         if chunks:
             texts = [c.page_content for c in chunks]
             metadatas = [c.metadata for c in chunks]
+            
+            # Embed and add to Dense Store (Chroma)
             embeddings = await embed_documents(texts)
             await add_documents(texts, embeddings, metadatas)
+            
+            # Add to Sparse Store (BM25)
+            from app.rag.vectorstore.bm25_store import get_bm25_store
+            bm25_docs = []
+            for i, text in enumerate(texts):
+                # Use the deterministic hash we generated in chunker as the ID to sync with Chroma
+                doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
+                bm25_docs.append({"id": doc_id, "text": text})
+            get_bm25_store().add_documents(bm25_docs)
+
             
         await set_cache(f"job:{job_id}", "completed")
     except Exception as e:
@@ -58,6 +70,14 @@ async def _process_url(url: str, job_id: str):
             metadatas = [c.metadata for c in chunks]
             embeddings = await embed_documents(texts)
             await add_documents(texts, embeddings, metadatas)
+            
+            # Add to Sparse Store (BM25)
+            from app.rag.vectorstore.bm25_store import get_bm25_store
+            bm25_docs = []
+            for i, text in enumerate(texts):
+                doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
+                bm25_docs.append({"id": doc_id, "text": text})
+            get_bm25_store().add_documents(bm25_docs)
         await set_cache(f"job:{job_id}", "completed")
     except Exception as e:
         await set_cache(f"job:{job_id}", f"failed: {str(e)}")

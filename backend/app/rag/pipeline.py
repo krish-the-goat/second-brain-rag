@@ -1,10 +1,14 @@
 import os
+import time
+import asyncio
 import structlog
 from typing import List, Dict, Any, AsyncGenerator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from app.rag.embeddings.gemini_embedder import embed_documents
-from app.rag.vectorstore.chroma_store import query
+
+from app.rag.retrievers.hybrid_retriever import hybrid_search
+from app.rag.graph.graph_retriever import retrieve_graph_context
+from app.rag.context_engineering import prune_irrelevant_context, build_dynamic_prompt
 from app.core.cache import increment_metric
 
 logger = structlog.get_logger(__name__)
@@ -13,28 +17,29 @@ class RAGPipeline:
     def __init__(self):
         self.llm = ChatGoogleGenerativeAI(model="models/gemini-2.0-flash", convert_system_message_to_human=True)
 
-    async def _retrieve_context(self, question: str) -> tuple[List[Dict], float, float]:
-        import time
+    async def _retrieve_all_context(self, question: str) -> tuple[List[Dict], str, float]:
+        """
+        Executes Hybrid Search and Graph Retrieval in parallel.
+        Prunes irrelevant hybrid chunks.
+        """
         t0 = time.time()
-        embeddings = await embed_documents([question])
-        embedding_ms = (time.time() - t0) * 1000
         
-        if not embeddings:
-            return [], embedding_ms, 0.0
+        # Parallel execution of Graph and Hybrid retrievers
+        hybrid_task = asyncio.create_task(hybrid_search(question, top_k=5))
+        graph_task = asyncio.create_task(retrieve_graph_context(question))
         
-        query_emb = embeddings[0]
-        threshold = float(os.getenv("SCORE_THRESHOLD", "0.7"))
+        hybrid_results, graph_context = await asyncio.gather(hybrid_task, graph_task)
         
-        t1 = time.time()
-        results = await query(query_emb, n_results=5, score_threshold=threshold)
-        retrieval_ms = (time.time() - t1) * 1000
+        # Context Engineering: Pruning
+        threshold = float(os.getenv("RERANK_THRESHOLD", "-5.0")) # MiniLM threshold tuning
+        pruned_hybrid = prune_irrelevant_context(hybrid_results, threshold=threshold)
         
-        return results, embedding_ms, retrieval_ms
+        retrieval_ms = (time.time() - t0) * 1000
+        return pruned_hybrid, graph_context, retrieval_ms
 
-    def _build_messages(self, question: str, chat_history: List[Dict], context_results: List[Dict]) -> List:
-        context_text = "\n\n---\n\n".join([r["text"] for r in context_results])
-        
-        system_prompt = "You are a helpful assistant. Answer ONLY from the provided context. If unsure, say so.\n\nContext:\n" + context_text
+    def _build_messages(self, question: str, chat_history: List[Dict], hybrid_results: List[Dict], graph_context: str) -> List:
+        # Context Engineering: Dynamic prompt construction and token budgeting
+        system_prompt = build_dynamic_prompt(hybrid_results, graph_context, max_tokens=4000)
         
         messages = [SystemMessage(content=system_prompt)]
         
@@ -50,20 +55,19 @@ class RAGPipeline:
     def _format_citations(self, context_results: List[Dict]) -> List[Dict]:
         citations = []
         for r in context_results:
-            meta = r.get("metadata", {})
-            excerpt = r.get("text", "")[:200]
+            # We use parent_content if it exists, otherwise child text
+            text = r.get("parent_content", r.get("text", ""))[:200]
             citations.append({
-                "filename": meta.get("filename", meta.get("url", "unknown")),
-                "page_number": meta.get("page_number", meta.get("section", 1)),
-                "excerpt": excerpt,
-                "score": r.get("score", 0.0)
+                "filename": r.get("filename", "unknown"),
+                "excerpt": text,
+                "score": r.get("rerank_score", r.get("score", 0.0))
             })
         return citations
 
     async def _log_and_track_metrics(self, question: str, context_results: List[Dict], tokens_used: int):
         avg_score = 0.0
         if context_results:
-            avg_score = sum(r.get("score", 0.0) for r in context_results) / len(context_results)
+            avg_score = sum(r.get("rerank_score", r.get("score", 0.0)) for r in context_results) / len(context_results)
             
         cost_usd = (tokens_used / 1_000_000) * 1.25 # Approximation
         
@@ -79,21 +83,20 @@ class RAGPipeline:
         await increment_metric("estimated_cost_usd", cost_usd)
 
     async def ask(self, question: str, chat_history: List[Dict] = None) -> Dict[str, Any]:
-        import time
         t_start = time.time()
         if chat_history is None:
             chat_history = []
             
-        context_results, embedding_ms, retrieval_ms = await self._retrieve_context(question)
+        hybrid_results, graph_context, retrieval_ms = await self._retrieve_all_context(question)
         
         if os.getenv("MOCK_LLM", "false").lower() == "true":
             return {
-                "answer": "Mocked answer due to API quota limits.",
-                "citations": self._format_citations(context_results),
+                "answer": f"Mocked Advanced RAG answer. Graph Context found: {bool(graph_context)}. Hybrid chunks: {len(hybrid_results)}.",
+                "citations": self._format_citations(hybrid_results),
                 "tokens_used": 10
             }
         
-        messages = self._build_messages(question, chat_history, context_results)
+        messages = self._build_messages(question, chat_history, hybrid_results, graph_context)
         
         t1 = time.time()
         response = await self.llm.ainvoke(messages)
@@ -103,15 +106,15 @@ class RAGPipeline:
         if response.response_metadata and "token_usage" in response.response_metadata:
             tokens_used = response.response_metadata["token_usage"].get("total_tokens", 0)
             
-        await self._log_and_track_metrics(question, context_results, tokens_used)
+        await self._log_and_track_metrics(question, hybrid_results, tokens_used)
             
         total_ms = (time.time() - t_start) * 1000
         return {
             "answer": response.content,
-            "citations": self._format_citations(context_results),
+            "citations": self._format_citations(hybrid_results),
             "tokens_used": tokens_used,
             "timings": {
-                "embedding_ms": embedding_ms,
+                "embedding_ms": 0, # Included in retrieval_ms now
                 "retrieval_ms": retrieval_ms,
                 "generation_ms": generation_ms,
                 "total_ms": total_ms
@@ -123,8 +126,8 @@ class RAGPipeline:
         if chat_history is None:
             chat_history = []
             
-        context_results, _, _ = await self._retrieve_context(question)
-        messages = self._build_messages(question, chat_history, context_results)
+        hybrid_results, graph_context, _ = await self._retrieve_all_context(question)
+        messages = self._build_messages(question, chat_history, hybrid_results, graph_context)
         
         tokens_used = 0
         
@@ -132,13 +135,11 @@ class RAGPipeline:
             if chunk.content:
                 yield f"data: {json.dumps({'text': chunk.content})}\n\n"
                 
-        # Typically token usage isn't fully supported in astream across all providers 
-        # But we will track a minimum approximation for streaming cost (1 token per ~4 chars output + input)
         approx_input = sum(len(m.content) for m in messages) // 4
-        tokens_used = approx_input + 50 # rough estimate since stream usage data isn't robustly standardized
-        await self._log_and_track_metrics(question, context_results, tokens_used)
+        tokens_used = approx_input + 50 
+        await self._log_and_track_metrics(question, hybrid_results, tokens_used)
         
-        citations = self._format_citations(context_results)
+        citations = self._format_citations(hybrid_results)
         yield f"data: {json.dumps({'citations': citations, 'tokens_used': tokens_used})}\n\n"
         yield "data: [DONE]\n\n"
 
