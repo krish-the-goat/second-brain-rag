@@ -19,8 +19,11 @@ def setup_logging():
         
     structlog.configure(
         processors=processors,
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
+    logging.basicConfig(format="%(message)s", level=logging.INFO)
+
+def get_logger(name: str = None):
+    return structlog.get_logger(name)
