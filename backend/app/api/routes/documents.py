@@ -62,9 +62,9 @@ async def _process_file(file_path: str, filename: str, content_type: str, job_id
                     
             get_bm25_store().add_documents(bm25_docs)
             
-            # Fire and forget graph extraction tasks
+            # Fire and await graph extraction tasks
             if graph_tasks:
-                asyncio.gather(*graph_tasks, return_exceptions=True)
+                await asyncio.gather(*graph_tasks, return_exceptions=True)
 
             
         await set_cache(f"job:{job_id}", "completed")
@@ -104,7 +104,7 @@ async def _process_url(url: str, job_id: str):
             get_bm25_store().add_documents(bm25_docs)
             
             if graph_tasks:
-                asyncio.gather(*graph_tasks, return_exceptions=True)
+                await asyncio.gather(*graph_tasks, return_exceptions=True)
         await set_cache(f"job:{job_id}", "completed")
     except Exception as e:
         await set_cache(f"job:{job_id}", f"failed: {str(e)}")

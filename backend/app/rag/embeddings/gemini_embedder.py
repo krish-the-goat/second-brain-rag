@@ -22,8 +22,10 @@ async def embed_documents(texts: List[str]) -> List[List[float]]:
         return []
         
     try:
+        import asyncio
         # SentenceTransformer.encode returns numpy arrays, we convert to lists
-        embeddings = model.encode(texts, show_progress_bar=False)
+        # CRITICAL FIX: Wrapped CPU-bound encode in to_thread to prevent event loop blocking
+        embeddings = await asyncio.to_thread(model.encode, texts, show_progress_bar=False)
         return embeddings.tolist()
     except Exception as e:
         logger.error(f"Local embedding generation failed: {e}")

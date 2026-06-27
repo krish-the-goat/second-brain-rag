@@ -60,7 +60,9 @@ async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
     pairs = [[query, doc.get("text", "")] for doc in fused_results]
     
     try:
-        scores = reranker.predict(pairs)
+        import asyncio
+        # CRITICAL FIX: Wrapped CPU-bound reranker in to_thread
+        scores = await asyncio.to_thread(reranker.predict, pairs)
         for doc, score in zip(fused_results, scores):
             doc["rerank_score"] = float(score)
             

@@ -8,8 +8,9 @@ from typing import List, Dict, Any, AsyncGenerator
 
 from app.rag.retrievers.hybrid_retriever import hybrid_search
 from app.rag.graph.graph_retriever import retrieve_graph_context
+import hashlib
 from app.rag.context_engineering import prune_irrelevant_context, build_dynamic_prompt
-from app.core.cache import increment_metric
+from app.core.cache import increment_metric, get_cache, set_cache
 
 logger = structlog.get_logger(__name__)
 
@@ -82,6 +83,14 @@ class RAGPipeline:
         t_start = time.time()
         if chat_history is None: chat_history = []
             
+        # Semantic Caching
+        cache_key = "query_cache:" + hashlib.sha256(f"{question}_{json.dumps(chat_history)}".encode()).hexdigest()
+        cached_result = await get_cache(cache_key)
+        if cached_result:
+            logger.info("Semantic Cache Hit", cache_key=cache_key)
+            cached_result["timings"]["total_ms"] = (time.time() - t_start) * 1000
+            return cached_result
+            
         hybrid_results, graph_context, retrieval_ms = await self._retrieve_all_context(question)
         messages = self._build_messages(question, chat_history, hybrid_results, graph_context)
         
@@ -112,7 +121,7 @@ class RAGPipeline:
             
         await self._log_and_track_metrics(question, hybrid_results, tokens_used)
             
-        return {
+        result = {
             "answer": answer,
             "citations": self._format_citations(hybrid_results),
             "tokens_used": tokens_used,
@@ -123,9 +132,30 @@ class RAGPipeline:
                 "total_ms": (time.time() - t_start) * 1000
             }
         }
+        
+        # Save to cache with 24 hour TTL
+        if "Error" not in answer:
+            await set_cache(cache_key, result, ttl=86400)
+            
+        return result
 
     async def ask_stream(self, question: str, chat_history: List[Dict] = None) -> AsyncGenerator[str, None]:
         if chat_history is None: chat_history = []
+        
+        # Stream Semantic Caching
+        cache_key = "query_cache:" + hashlib.sha256(f"{question}_{json.dumps(chat_history)}".encode()).hexdigest()
+        cached_result = await get_cache(cache_key)
+        if cached_result:
+            logger.info("Semantic Stream Cache Hit", cache_key=cache_key)
+            # Fake the stream output for cached response
+            words = cached_result["answer"].split(" ")
+            for i, word in enumerate(words):
+                content = word + (" " if i < len(words)-1 else "")
+                yield f"data: {json.dumps({'text': content})}\n\n"
+                await asyncio.sleep(0.01) # Small delay for UI effect
+            yield f"data: {json.dumps({'citations': cached_result['citations'], 'tokens_used': cached_result['tokens_used']})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
             
         hybrid_results, graph_context, _ = await self._retrieve_all_context(question)
         messages = self._build_messages(question, chat_history, hybrid_results, graph_context)
@@ -138,6 +168,7 @@ class RAGPipeline:
         
         tokens_used = (sum(len(m["content"]) for m in messages)) // 4
         generated_chars = 0
+        full_answer = ""
         
         try:
             async with httpx.AsyncClient() as client:
@@ -154,6 +185,7 @@ class RAGPipeline:
                                 content = delta.get("content", "")
                                 if content:
                                     generated_chars += len(content)
+                                    full_answer += content
                                     yield f"data: {json.dumps({'text': content})}\n\n"
                             except Exception:
                                 pass
@@ -167,5 +199,20 @@ class RAGPipeline:
         citations = self._format_citations(hybrid_results)
         yield f"data: {json.dumps({'citations': citations, 'tokens_used': tokens_used})}\n\n"
         yield "data: [DONE]\n\n"
+        
+        # Save accumulated result to Semantic Cache
+        if full_answer and "Error" not in full_answer:
+            result = {
+                "answer": full_answer,
+                "citations": citations,
+                "tokens_used": tokens_used,
+                "timings": {
+                    "embedding_ms": 0,
+                    "retrieval_ms": 0, # Cannot accurately measure inside generator without passing it down
+                    "generation_ms": 0,
+                    "total_ms": 0
+                }
+            }
+            await set_cache(cache_key, result, ttl=86400)
 
 pipeline = RAGPipeline()

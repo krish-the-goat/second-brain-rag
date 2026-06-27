@@ -71,10 +71,11 @@ async def extract_and_store_graph(text: str):
                 )
                 
             for rel in data.get("relationships", []):
+                rel_type = rel.get("type", "RELATED_TO").upper().replace(" ", "_").replace("-", "_")
                 manager.add_relationship(
                     source_name=rel.get("source"),
                     target_name=rel.get("target"),
-                    relationship_type=rel.get("type"),
+                    relationship_type=rel_type,
                     context=rel.get("context", "")
                 )
                 
