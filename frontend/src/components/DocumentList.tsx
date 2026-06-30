@@ -20,11 +20,9 @@ export default function DocumentList() {
       const res = await api.get('/documents');
       return res.data.documents as Document[];
     },
-    // We poll if any document implies we might be waiting for it.
-    // However, our backend doesn't store "processing" status in ChromaDB yet, it's just in memory jobs.
-    // If we wanted to accurately poll, we'd check jobs endpoint.
-    // For now, let's poll every 3s if we think something is uploading, or just blindly poll for simplicity.
-    refetchInterval: 3000, 
+    // Poll every 10 s — polling every 3 s consumes ~20 req/min which alone
+    // exceeds the old 10/min global rate limit and causes self-throttling.
+    refetchInterval: 10_000, 
   });
 
   const deleteMutation = useMutation({

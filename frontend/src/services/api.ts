@@ -1,39 +1,36 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
-// Request interceptor for authorization
+// Request interceptor — always attach the API key.
+// In production, Nginx injects X-API-Key server-side via proxy_set_header.
+// In dev (vite proxy or direct), we read it from the VITE_API_KEY env var.
+// We send it here too so the dev server (which bypasses Nginx) works correctly.
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  if (import.meta.env.DEV) {
-    config.headers['X-API-Key'] = import.meta.env.VITE_API_KEY || 'default-secret-key-change-in-prod';
+  const apiKey = import.meta.env.VITE_API_KEY;
+  if (apiKey) {
+    config.headers['X-API-Key'] = apiKey;
   }
   return config;
 });
 
-// Response interceptor for logging and retry on 429
+// Response interceptor — log errors and retry once on 429.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     console.error('API Error:', error.response?.data || error.message);
-    
+
     const originalRequest = error.config;
-    
+
     if (error.response?.status === 429 && !originalRequest._retry) {
       originalRequest._retry = true;
-      console.log('Rate limit exceeded. Retrying in 1 second...');
-      
-      // Wait for 1 second
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      console.warn('Rate limit hit. Retrying in 2 seconds…');
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       return api(originalRequest);
     }
-    
+
     return Promise.reject(error);
   }
 );

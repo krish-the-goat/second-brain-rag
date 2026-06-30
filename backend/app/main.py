@@ -44,8 +44,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 API_KEY = os.getenv("API_KEY")
-if not API_KEY or API_KEY == "default-secret-key-change-in-prod":
-    raise RuntimeError("Set a strong API_KEY in environment before starting.")
+if not API_KEY:
+    raise RuntimeError("API_KEY environment variable is not set. Set it before starting.")
+if API_KEY == "default-secret-key-change-in-prod":
+    raise RuntimeError("API_KEY is still the default placeholder. Set a strong secret before starting.")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -60,8 +62,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
 )
 
 @app.middleware("http")

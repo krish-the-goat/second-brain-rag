@@ -17,63 +17,72 @@ from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
+
 class URLUploadRequest(BaseModel):
     url: HttpUrl = Field(..., max_length=2048)
+
 
 async def _process_file(file_path: str, filename: str, content_type: str, job_id: str):
     await set_cache(f"job:{job_id}", "processing")
     try:
         content_type_lower = content_type.lower()
         filename_lower = filename.lower()
+
         if "pdf" in content_type_lower or filename_lower.endswith(".pdf"):
             docs = await load_pdf(file_path)
         elif "word" in content_type_lower or "docx" in content_type_lower or filename_lower.endswith(".docx"):
             docs = await load_docx(file_path)
         else:
             raise UnsupportedFormatError(f"Unsupported format for {filename}")
-            
+
         for doc in docs:
             doc.metadata["filename"] = filename
-            
+
         chunks = chunk_documents(docs)
         if chunks:
             texts = [c.page_content for c in chunks]
             metadatas = [c.metadata for c in chunks]
-            
-            # Embed and add to Dense Store (Chroma)
+
             embeddings = await embed_documents(texts)
             await add_documents(texts, embeddings, metadatas)
-            
-            # Add to Sparse Store (BM25)
+
             from app.rag.vectorstore.bm25_store import get_bm25_store
             from app.rag.graph.graph_extractor import extract_and_store_graph
             import asyncio
-            
+
             bm25_docs = []
             graph_tasks = []
-            
+
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
                 bm25_docs.append({"id": doc_id, "text": text})
-                
-                # Extract graph only from the first few chunks to save LLM quota for testing
-                if i < 3: 
+                if i < 3:
                     parent_text = metadatas[i].get("parent_content", text)
                     graph_tasks.append(extract_and_store_graph(parent_text))
-                    
-            get_bm25_store().add_documents(bm25_docs)
-            
-            # Fire and await graph extraction tasks
-            if graph_tasks:
-                await asyncio.gather(*graph_tasks, return_exceptions=True)
 
-            
+            get_bm25_store().add_documents(bm25_docs)
+
+            for task in graph_tasks:
+                try:
+                    await task
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    # Graph extraction failures are non-fatal — log and continue indexing
+                    import structlog
+                    structlog.get_logger(__name__).warning(f"Graph extraction failed (non-fatal): {e}")
+
         await set_cache(f"job:{job_id}", "completed")
+
     except Exception as e:
         await set_cache(f"job:{job_id}", f"failed: {str(e)}")
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        # Always clean up the temp file, regardless of success or failure
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except OSError:
+            pass  # Best-effort cleanup
+
 
 async def _process_url(url: str, job_id: str):
     await set_cache(f"job:{job_id}", "processing")
@@ -85,79 +94,111 @@ async def _process_url(url: str, job_id: str):
             metadatas = [c.metadata for c in chunks]
             embeddings = await embed_documents(texts)
             await add_documents(texts, embeddings, metadatas)
-            
-            # Add to Sparse Store (BM25)
+
             from app.rag.vectorstore.bm25_store import get_bm25_store
             from app.rag.graph.graph_extractor import extract_and_store_graph
             import asyncio
-            
+
             bm25_docs = []
             graph_tasks = []
-            
+
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
                 bm25_docs.append({"id": doc_id, "text": text})
-                
-                if i < 3: 
+                if i < 3:
                     parent_text = metadatas[i].get("parent_content", text)
                     graph_tasks.append(extract_and_store_graph(parent_text))
-                    
+
             get_bm25_store().add_documents(bm25_docs)
-            
-            if graph_tasks:
-                await asyncio.gather(*graph_tasks, return_exceptions=True)
+
+            for task in graph_tasks:
+                try:
+                    await task
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    import structlog
+                    structlog.get_logger(__name__).warning(f"Graph extraction failed (non-fatal): {e}")
+
         await set_cache(f"job:{job_id}", "completed")
     except Exception as e:
         await set_cache(f"job:{job_id}", f"failed: {str(e)}")
 
+
 @router.post("/upload")
 @limiter.limit("3/minute")
-async def upload_document(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_document(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
     import magic
+
     max_size = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024
-    
-    safe_filename = os.path.basename(file.filename)
+
+    safe_filename = os.path.basename(file.filename or "")
     if not safe_filename.endswith((".pdf", ".docx")):
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
-        
+
     job_id = str(uuid.uuid4())
-    fd, temp_path = tempfile.mkstemp()
-    total_size = 0
-    
+
+    # Write to a temp file. Use a context manager for the fd so it's closed
+    # cleanly before the background task opens the file by path.
+    fd, temp_path = tempfile.mkstemp(suffix=os.path.splitext(safe_filename)[1])
     try:
-        with open(temp_path, "wb") as f:
+        total_size = 0
+        with os.fdopen(fd, "wb") as f:  # fdopen takes ownership — fd is closed when 'f' exits
             while chunk := await file.read(8192):
                 total_size += len(chunk)
                 if total_size > max_size:
-                    os.close(fd)
-                    os.remove(temp_path)
-                    raise DocumentTooLargeError(f"File exceeds max size of {max_size} bytes")
+                    # f is closed by the with-block on exit; remove the file here
+                    raise DocumentTooLargeError(
+                        f"File exceeds maximum size of {max_size // (1024 * 1024)}MB"
+                    )
                 f.write(chunk)
-        os.close(fd)
-        
+        # fd is now closed; temp_path still exists on disk
+
         mime = magic.from_file(temp_path, mime=True)
-        if mime not in ("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+        allowed_mimes = {
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+        if mime not in allowed_mimes:
             os.remove(temp_path)
-            raise HTTPException(status_code=400, detail="Invalid file type detected.")
+            raise HTTPException(status_code=400, detail=f"Invalid file type detected: {mime}")
+
+    except DocumentTooLargeError:
+        # Ensure temp file is removed before re-raising so the 413 is clean
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
         raise e
-        
-    background_tasks.add_task(_process_file, temp_path, safe_filename, file.content_type, job_id)
+
+    background_tasks.add_task(_process_file, temp_path, safe_filename, file.content_type or "", job_id)
     return {"job_id": job_id, "status": "processing"}
+
 
 @router.post("/url")
 @limiter.limit("2/minute")
-async def upload_url(body: URLUploadRequest, background_tasks: BackgroundTasks, request: Request):
+async def upload_url(
+    body: URLUploadRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+):
     job_id = str(uuid.uuid4())
     background_tasks.add_task(_process_url, str(body.url), job_id)
     return {"job_id": job_id, "status": "processing"}
+
 
 @router.get("")
 async def get_documents(request: Request):
     docs = await list_documents()
     return {"documents": docs}
+
 
 @router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str, request: Request):
@@ -165,6 +206,7 @@ async def get_job_status(job_id: str, request: Request):
     if not status:
         status = "unknown"
     return {"job_id": job_id, "status": status}
+
 
 @router.delete("/{doc_id}")
 async def delete_doc(doc_id: str, request: Request):
