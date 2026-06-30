@@ -9,8 +9,8 @@ from app.core.rate_limit import limiter
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 class ChatMessage(BaseModel):
-    role: str
-    content: str
+    role: str = Field(..., max_length=20)
+    content: str = Field(..., max_length=4000)
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
