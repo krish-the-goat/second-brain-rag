@@ -1,30 +1,37 @@
 # 🧠 Second Brain RAG
 
-A production-grade **Retrieval-Augmented Generation (RAG)** application built to act as your personal "Second Brain". Upload your college notes, PDFs, Word documents, and Web URLs, and instantly chat with your knowledge base. The AI provides highly accurate answers by retrieving the exact context from your documents without hallucinating.
+Welcome to **Second Brain RAG**! I built this project to solve a very real problem: we all have way too many PDFs, DOCX files, and web bookmarks scattered around, and finding specific information inside them is a nightmare. 
 
-## ✨ Features
+Instead of just building another generic wrapper around an LLM, I engineered a production-grade, highly secure **Retrieval-Augmented Generation (RAG)** system. You can feed it your documents, and it acts as your personal "Second Brain" — answering questions accurately by extracting exactly what you need, with precise citations, and zero hallucinations.
 
-- **Advanced RAG Pipeline:** Utilizes **Hybrid Search** (ChromaDB Dense + BM25 Sparse) combined with **Reciprocal Rank Fusion (RRF)** and **Cross-Encoder Reranking** for unparalleled retrieval accuracy.
-- **Graph RAG Augmentation:** Automatically extracts Knowledge Graphs (Entities & Relationships) using LLMs and stores them in **Neo4j** to provide multi-hop relational context to your queries.
-- **Document Ingestion:** Drag-and-drop support for PDFs and DOCX files, plus URL web scraping with SSRF protection.
-- **Smart Chunking:** Uses Parent-Child chunking strategies to retrieve highly specific snippets while feeding broad context to the LLM.
-- **Chat Interface:** A premium, ChatGPT-like chat interface with Server-Sent Events (SSE) for real-time typing/streaming of AI responses, complete with precise document citations.
-- **Production-Ready Backend:** Fully asynchronous FastAPI backend featuring `gunicorn` concurrency, rate limiting, IP validation, API Key authentication, and protection against Cypher & Prompt Injection attacks.
+---
+
+## 🔥 Why This Stands Out
+
+This isn't just a basic semantic search script. It's packed with heavy engineering to make it fast, reliable, and practically bulletproof:
+
+*   **Advanced Hybrid RAG Pipeline:** We don't just rely on vectors. This system uses **Dense Search (ChromaDB)** + **Sparse Keyword Search (BM25)**, combined with **Reciprocal Rank Fusion (RRF)**. It then pipes the results through a **Local Cross-Encoder** to rerank and surface the absolute best context.
+*   **GraphRAG Augmentation:** As you upload documents, the system uses LLMs to extract entities and relationships, building a live Knowledge Graph in **Neo4j**. When you ask a question, it traverses this graph to provide multi-hop relational context!
+*   **Multi-Provider LLM Fallback (Zero Downtime):** AI APIs drop constantly. If the primary provider (Gemini 2.5) hits a rate limit (429) or fails, the `LLMManager` instantly hot-swaps the payload format and falls back to **Groq (LLaMa 3.3 70B)** mid-stream without the user ever noticing.
+*   **Military-Grade Security (OWASP Top 10 LLM 2025):** I took security very seriously.
+    *   **Prompt Injection Defense:** User queries are strictly isolated in XML `<USER_QUERY>` tags with hardcoded behavioral boundaries.
+    *   **DoS & Zip Bomb Protection:** Strict limits on PDF pages (500) and DOCX paragraphs (10,000) to prevent memory exhaustion (OOM) attacks.
+    *   **SSRF Protection:** Web scraping explicitly resolves hostnames and drops local/private IPs (AWS metadata, localhost).
+    *   **Data Isolation:** All database ports (Redis, Neo4j, Chroma) are strictly locked down to localhost to prevent external network exposure.
+*   **Premium Chat UI:** A sleek, glassmorphism React interface featuring Server-Sent Events (SSE) for real-time text streaming, complete with clickable document citations.
+
+---
 
 ## 🛠️ Tech Stack
 
-**Frontend:**
-- React (TypeScript) + Vite
-- React Query & Axios
-- Custom Glassmorphism CSS & Tailwind
+*   **Frontend:** React (TypeScript), Vite, React Query, Tailwind CSS, Lucide Icons.
+*   **Backend:** Python 3.12, FastAPI (Async), Gunicorn.
+*   **LLMs:** Google Gemini (Primary) & Groq / LLaMa 3 (Fallback).
+*   **Embeddings & Reranking:** Local `SentenceTransformers` (`all-MiniLM-L6-v2` & `ms-marco-MiniLM-L-6-v2`) — totally free and private.
+*   **Databases:** ChromaDB (Vectors), Neo4j (Graph), Redis (Caching & Rate Limiting).
+*   **Infrastructure:** Fully containerized with Docker Compose.
 
-**Backend & Infra:**
-- Python 3.12 & FastAPI
-- **LLM:** OpenRouter (Gemini 2.5 Flash / Claude)
-- **Embeddings:** Local `SentenceTransformers` (`all-MiniLM-L6-v2`)
-- **Vector DB:** ChromaDB (Client/Server Mode)
-- **Graph DB:** Neo4j
-- **Deployment:** Docker Compose, Nginx (SSE optimized), Gunicorn (4 workers)
+---
 
 ## 🚀 Getting Started
 
@@ -35,45 +42,35 @@ cd second-brain-rag
 ```
 
 ### 2. Environment Variables
-Create a `.env` file in the root of the project:
-```env
-OPENROUTER_API_KEY="your_api_key_here"
-API_KEY="your_secure_backend_api_key"
-NEO4J_USERNAME="neo4j"
-NEO4J_PASSWORD="your_secure_password"
-```
-*(Also add `VITE_API_KEY="your_secure_backend_api_key"` in `frontend/.env`)*
-
-### 3. Production Deployment (Docker)
-The easiest way to run the entire stack (FastAPI, Nginx, Neo4j, ChromaDB):
+Copy `.env.example` to `.env` and fill in your keys:
 ```bash
-chmod +x deploy.sh
-./deploy.sh
+cp .env.example .env
 ```
-The app will be available at `http://localhost`.
+Make sure to add your Google API key, Groq API key, and choose strong passwords for the databases.
 
-### 4. Local Development
-**Backend:**
+### 3. Spin it up (Docker)
+The absolute easiest way to run the entire stack is via Docker Compose:
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+docker-compose up -d --build
 ```
+Once the containers are running, open your browser and go to `http://localhost:5173`. Boom, your Second Brain is ready!
 
-**Frontend:**
-```bash
-cd frontend
-npm install
-npm run dev
-```
+---
 
-## 📂 Project Architecture
+## 🧠 How the RAG Pipeline Actually Works
 
-- `/frontend` - React application source code.
-- `/backend` - FastAPI server, RAG pipeline, loaders, chunkers, and ChromaDB/Neo4j logic.
-- `/evaluation` - Scripts to evaluate the Context Recall and Answer Accuracy of the RAG pipeline.
+If you're curious about what happens when you type a question:
+1. **Query Intent:** The system takes your question and embeds it locally.
+2. **Retrieval:** It searches ChromaDB (meaning/semantics) and the local BM25 store (exact keyword matches).
+3. **Graph Search:** Simultaneously, it queries Neo4j for any 1-hop relationships connected to the entities in your question.
+4. **Reranking:** The Dense and Sparse results are fused and reranked using a local Cross-Encoder to guarantee the best 5 chunks.
+5. **Prompt Engineering:** The reranked chunks and graph context are carefully pruned and injected into a strict `SECURITY DIRECTIVE` prompt.
+6. **Generation:** The payload is sent to Gemini (or Groq if Gemini fails), and the response is streamed directly back to your React UI via Server-Sent Events.
 
-## 🤝 Contribution
-Feel free to open issues and pull requests to enhance the capabilities of this Second Brain RAG system!
+---
+
+## 🤝 Contributing
+
+I built this as a robust foundation, but there is always room for improvement! If you want to add RBAC (Role-Based Access Control) for multiple users, or implement multi-modal document parsing, feel free to open a PR or an issue. 
+
+*Happy Hacking!* 🚀
