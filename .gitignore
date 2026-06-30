@@ -1,5 +1,9 @@
-# Environments
+# Environments — never commit secrets
 .env
+backend/.env
+frontend/.env
+.env.local
+.env.*.local
 .venv
 env/
 venv/
@@ -62,3 +66,8 @@ evaluation/benchmark_results.json
 .DS_Store
 backend/chroma_data/
 graphify-out/
+backend/bm25_data/
+backend/neo4j_data/
+browser_test.py
+proof_of_success.png
+test.js
