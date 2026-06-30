@@ -2,43 +2,59 @@ version: '3.8'
 
 services:
   backend:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
       - .env
-    # No volumes needed for backend since DBs are external containers
     networks:
       - rag_network
     depends_on:
       - neo4j
       - redis
       - chroma
+    volumes:
+      - bm25_data:/app/bm25_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
-    build: 
+    build:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "80:80"
     environment:
+      # Nginx uses envsubst to inject API_KEY into the proxy header server-side.
+      # The key is never baked into the JS bundle.
       - API_KEY=${API_KEY}
     networks:
       - rag_network
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5
     restart: unless-stopped
     environment:
-      - NEO4J_AUTH=${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-secretpassword}
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-secretpassword}
     volumes:
       - neo4j_data:/data
     networks:
       - rag_network
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD:-secretpassword}", "RETURN 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   chroma:
     image: chromadb/chroma:latest
@@ -49,9 +65,13 @@ services:
       - rag_network
     environment:
       - IS_PERSISTENT=TRUE
-      - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.token.TokenAuthServerProvider
-      - CHROMA_SERVER_AUTH_CREDENTIALS_FILE=/chroma/auth.json
       - CHROMA_SERVER_AUTH_CREDENTIALS=${CHROMA_AUTH_TOKEN:-default-strong-token}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   redis:
     image: redis:alpine
@@ -61,6 +81,11 @@ services:
       - rag_network
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-strongpassword}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   rag_network:
@@ -70,3 +95,4 @@ volumes:
   neo4j_data:
   chroma_data:
   redis_data:
+  bm25_data:
