@@ -71,7 +71,7 @@ async def add_documents(
         for k, v in m.items():
             # ChromaDB only accepts scalar metadata values
             clean[k] = v if isinstance(v, (str, int, float, bool)) else str(v)
-        clean.setdefault("doc_id", clean.get("filename", "unknown"))
+        clean.setdefault("doc_id", clean.get("filename", clean.get("url", "unknown")))
         clean_metas.append(clean)
 
     collection.add(
@@ -130,7 +130,7 @@ async def list_documents() -> List[Dict]:
         if doc_id not in docs_map:
             docs_map[doc_id] = {
                 "doc_id": doc_id,
-                "filename": m.get("filename", "unknown"),
+                "filename": m.get("filename", m.get("url", "unknown")),
                 "chunk_count": 0,
                 "created_at": m.get("scraped_at", m.get("created_at", "unknown")),
             }

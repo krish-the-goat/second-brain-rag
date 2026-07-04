@@ -65,6 +65,16 @@ class BM25Store:
             self._save()
         logger.info(f"Added {len(new_docs)} documents to BM25 index (total: {len(self.corpus)}).")
 
+    def delete_documents_by_doc_id(self, doc_id: str):
+        """Remove all chunks associated with a specific doc_id from the BM25 index."""
+        with self._lock:
+            initial_len = len(self.corpus)
+            self.corpus = [d for d in self.corpus if d.get("doc_id") != doc_id]
+            if len(self.corpus) < initial_len:
+                self._build_index()
+                self._save()
+                logger.info(f"Deleted {initial_len - len(self.corpus)} chunks from BM25 for doc_id: {doc_id}")
+
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
         """Search the BM25 index and return the top_k matching chunks."""
         if not self.bm25 or not self.corpus:

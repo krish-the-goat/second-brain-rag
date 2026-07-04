@@ -55,7 +55,7 @@ async def _process_file(file_path: str, filename: str, content_type: str, job_id
 
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
-                bm25_docs.append({"id": doc_id, "text": text})
+                bm25_docs.append({"id": doc_id, "text": text, "doc_id": filename})
                 if i < 3:
                     parent_text = metadatas[i].get("parent_content", text)
                     graph_tasks.append(extract_and_store_graph(parent_text))
@@ -104,7 +104,7 @@ async def _process_url(url: str, job_id: str):
 
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
-                bm25_docs.append({"id": doc_id, "text": text})
+                bm25_docs.append({"id": doc_id, "text": text, "doc_id": url})
                 if i < 3:
                     parent_text = metadatas[i].get("parent_content", text)
                     graph_tasks.append(extract_and_store_graph(parent_text))
@@ -210,5 +210,7 @@ async def get_job_status(job_id: str, request: Request):
 
 @router.delete("/{doc_id}")
 async def delete_doc(doc_id: str, request: Request):
+    from app.rag.vectorstore.bm25_store import get_bm25_store
     await delete_document(doc_id)
+    get_bm25_store().delete_documents_by_doc_id(doc_id)
     return {"status": "deleted"}
