@@ -38,8 +38,11 @@ async def _process_file(file_path: str, filename: str, content_type: str, job_id
         for doc in docs:
             doc.metadata["filename"] = filename
 
-        chunks = chunk_documents(docs)
+        chunks, parent_store = chunk_documents(docs)
         if chunks:
+            for p_id, p_text in parent_store.items():
+                await set_cache(f"parent:{p_id}", p_text, ttl=None)
+
             texts = [c.page_content for c in chunks]
             metadatas = [c.metadata for c in chunks]
 
@@ -51,25 +54,29 @@ async def _process_file(file_path: str, filename: str, content_type: str, job_id
             import asyncio
 
             bm25_docs = []
-            graph_tasks = []
+            graph_texts = []
 
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
                 bm25_docs.append({"id": doc_id, "text": text, "doc_id": filename})
                 if i < 3:
                     parent_text = metadatas[i].get("parent_content", text)
-                    graph_tasks.append(extract_and_store_graph(parent_text))
+                    graph_texts.append(parent_text)
 
             get_bm25_store().add_documents(bm25_docs)
 
-            for task in graph_tasks:
-                try:
-                    await task
-                    await asyncio.sleep(2)
-                except Exception as e:
-                    # Graph extraction failures are non-fatal — log and continue indexing
-                    import structlog
-                    structlog.get_logger(__name__).warning(f"Graph extraction failed (non-fatal): {e}")
+            sem = asyncio.Semaphore(2)
+            async def bounded_extract(t: str):
+                async with sem:
+                    try:
+                        await extract_and_store_graph(t)
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        import structlog
+                        structlog.get_logger(__name__).warning(f"Graph extraction failed (non-fatal): {e}")
+
+            if graph_texts:
+                await asyncio.gather(*(bounded_extract(t) for t in graph_texts))
 
         await set_cache(f"job:{job_id}", "completed")
 
@@ -88,8 +95,11 @@ async def _process_url(url: str, job_id: str):
     await set_cache(f"job:{job_id}", "processing")
     try:
         docs = await load_web(url)
-        chunks = chunk_documents(docs)
+        chunks, parent_store = chunk_documents(docs)
         if chunks:
+            for p_id, p_text in parent_store.items():
+                await set_cache(f"parent:{p_id}", p_text, ttl=None)
+
             texts = [c.page_content for c in chunks]
             metadatas = [c.metadata for c in chunks]
             embeddings = await embed_documents(texts)
@@ -100,24 +110,29 @@ async def _process_url(url: str, job_id: str):
             import asyncio
 
             bm25_docs = []
-            graph_tasks = []
+            graph_texts = []
 
             for i, text in enumerate(texts):
                 doc_id = metadatas[i].get("hash", f"{job_id}_{i}")
                 bm25_docs.append({"id": doc_id, "text": text, "doc_id": url})
                 if i < 3:
                     parent_text = metadatas[i].get("parent_content", text)
-                    graph_tasks.append(extract_and_store_graph(parent_text))
+                    graph_texts.append(parent_text)
 
             get_bm25_store().add_documents(bm25_docs)
 
-            for task in graph_tasks:
-                try:
-                    await task
-                    await asyncio.sleep(2)
-                except Exception as e:
-                    import structlog
-                    structlog.get_logger(__name__).warning(f"Graph extraction failed (non-fatal): {e}")
+            sem = asyncio.Semaphore(2)
+            async def bounded_extract(t: str):
+                async with sem:
+                    try:
+                        await extract_and_store_graph(t)
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        import structlog
+                        structlog.get_logger(__name__).warning(f"Graph extraction failed (non-fatal): {e}")
+
+            if graph_texts:
+                await asyncio.gather(*(bounded_extract(t) for t in graph_texts))
 
         await set_cache(f"job:{job_id}", "completed")
     except Exception as e:
@@ -211,6 +226,14 @@ async def get_job_status(job_id: str, request: Request):
 @router.delete("/{doc_id}")
 async def delete_doc(doc_id: str, request: Request):
     from app.rag.vectorstore.bm25_store import get_bm25_store
+    from app.rag.vectorstore.chroma_store import delete_document, get_document_parents
+    from app.core.cache import delete_cache
+    
+    # Clean up parent chunks from Redis
+    parents = await get_document_parents(doc_id)
+    for p_id in parents:
+        await delete_cache(f"parent:{p_id}")
+        
     await delete_document(doc_id)
     get_bm25_store().delete_documents_by_doc_id(doc_id)
     return {"status": "deleted"}

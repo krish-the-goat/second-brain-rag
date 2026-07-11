@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple
 from app.rag.vectorstore.chroma_store import query as chroma_query
 from app.rag.embeddings.local_embedder import embed_documents
 from app.rag.vectorstore.bm25_store import get_bm25_store
-from app.rag.chunkers.recursive_chunker import get_parent_text
+from app.core.cache import get_cache
 from sentence_transformers import CrossEncoder
 import structlog
 import uuid
@@ -71,7 +71,7 @@ async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
             meta = doc.get("metadata", {})
             parent_id = meta.get("parent_id")
             if parent_id:
-                parent_text = get_parent_text(parent_id)
+                parent_text = await get_cache(f"parent:{parent_id}")
                 if parent_text:
                     doc["parent_content"] = parent_text
             if "filename" in meta:

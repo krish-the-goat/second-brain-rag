@@ -49,8 +49,13 @@ async def embed_documents(texts: List[str]) -> List[List[float]]:
             logger.error("Embedding model unavailable — cannot embed documents.")
             return []
 
-        embeddings = await asyncio.to_thread(model.encode, texts, show_progress_bar=False)
-        return embeddings.tolist()
+        embeddings = []
+        batch_size = 32
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            batch_embeddings = await asyncio.to_thread(model.encode, batch_texts, show_progress_bar=False)
+            embeddings.extend(batch_embeddings.tolist())
+        return embeddings
     except Exception as e:
         logger.error(f"Local embedding generation failed: {e}")
         return []

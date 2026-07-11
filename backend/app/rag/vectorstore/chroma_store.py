@@ -117,6 +117,15 @@ async def query(
 async def delete_document(doc_id: str):
     get_collection().delete(where={"doc_id": doc_id})
 
+async def get_document_parents(doc_id: str) -> set:
+    collection = get_collection()
+    results = collection.get(where={"doc_id": doc_id}, include=["metadatas"])
+    parents = set()
+    for m in results.get("metadatas", []):
+        if m and "parent_id" in m:
+            parents.add(m["parent_id"])
+    return parents
+
 
 async def list_documents() -> List[Dict]:
     collection = get_collection()

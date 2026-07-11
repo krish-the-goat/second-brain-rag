@@ -92,7 +92,7 @@ async def retrieve_graph_context(question: str) -> str:
         logger.info(f"Graph Search querying entity: {entity_name}")
         
         manager = get_neo4j_manager()
-        relationships = manager.get_related_context(entity_name)
+        relationships = await asyncio.to_thread(manager.get_related_context, entity_name)
         
         if not relationships:
             return ""

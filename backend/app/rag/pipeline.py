@@ -36,6 +36,7 @@ class RAGPipeline:
     def _build_payload(self, provider: str, question: str, chat_history: List[Dict], hybrid_results: List[Dict], graph_context: str) -> tuple[str, dict, dict]:
         system_prompt = build_dynamic_prompt(hybrid_results, graph_context, max_tokens=4000)
         api_key = llm_manager.get_api_key(provider)
+        safe_question = question.replace("<", "&lt;").replace(">", "&gt;")
         
         if provider == "gemini":
             stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key={api_key}"
@@ -48,7 +49,7 @@ class RAGPipeline:
                         "role": "model" if msg["role"] in ["assistant", "model"] else "user",
                         "parts": [{"text": msg.get("content", "")}],
                     })
-            contents.append({"role": "user", "parts": [{"text": f"<USER_QUERY>\n{question}\n</USER_QUERY>"}]})
+            contents.append({"role": "user", "parts": [{"text": f"<USER_QUERY>\n{safe_question}\n</USER_QUERY>"}]})
             
             payload = {
                 "systemInstruction": {"parts": [{"text": system_prompt}]},
@@ -70,7 +71,7 @@ class RAGPipeline:
                         "role": "assistant" if msg["role"] in ["assistant", "model"] else "user",
                         "content": msg.get("content", "")
                     })
-            messages.append({"role": "user", "content": f"<USER_QUERY>\n{question}\n</USER_QUERY>"})
+            messages.append({"role": "user", "content": f"<USER_QUERY>\n{safe_question}\n</USER_QUERY>"})
             
             payload = {
                 "model": "llama-3.3-70b-versatile",
@@ -115,7 +116,8 @@ class RAGPipeline:
             history_str = json.dumps(chat_history, default=str)
         except TypeError:
             history_str = str(chat_history)
-        return "query_cache:" + hashlib.sha256(f"{question}_{history_str}".encode()).hexdigest()
+        tenant_salt = os.getenv("API_KEY", "default")
+        return "query_cache:" + hashlib.sha256(f"{tenant_salt}_{question}_{history_str}".encode()).hexdigest()
 
     async def ask(self, question: str, chat_history: List[Dict] = None) -> Dict[str, Any]:
         t_start = time.time()

@@ -11,63 +11,71 @@ from bs4 import BeautifulSoup
 from langchain_core.documents import Document
 from app.core.exceptions import ScrapingError
 
-def is_safe_url(url: str) -> bool:
+def resolve_and_check(url: str) -> tuple[str, int, str]:
     """FAANG-level SSRF Protection: Resolve hostname and block private/local IPs."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ScrapingError("Security Policy Violation: URL scheme is not permitted.")
+        
+    hostname = parsed.hostname
+    if not hostname:
+        raise ScrapingError("Security Policy Violation: No hostname provided.")
+        
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    
     try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False
+        # Resolve hostname to IPv4
+        info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+        ip = info[0][4][0]
+    except Exception as e:
+        raise ScrapingError(f"DNS resolution failed: {e}")
+        
+    ip_obj = ipaddress.ip_address(ip)
+    
+    # Block internal, private, loopback, and cloud metadata IPs
+    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast:
+        raise ScrapingError(f"Security Policy Violation: {ip} is a restricted IP.")
+    if str(ip) == "169.254.169.254":
+        raise ScrapingError(f"Security Policy Violation: {ip} is a restricted IP.")
             
-        hostname = parsed.hostname
-        if not hostname:
-            return False
-            
-        # Resolve hostname to all IPs
-        for info in socket.getaddrinfo(hostname, None):
-            ip_addr = info[4][0]
-            ip = ipaddress.ip_address(ip_addr)
-            
-            # Block internal, private, loopback, and cloud metadata IPs
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
-                return False
-            if str(ip) == "169.254.169.254":
-                return False
-                
-        return True
-    except Exception:
-        return False
+    return ip, port, hostname
 
 def _process_web_sync(url: str) -> List[Document]:
-    if not is_safe_url(url):
-        raise ScrapingError(f"Security Policy Violation: URL {url} is not permitted (SSRF protection).")
+    import subprocess
+    ip, port, hostname = resolve_and_check(url)
         
     retries = [1, 2, 4]
-    response = None
-    MAX_RESPONSE_BYTES = 5 * 1024 * 1024
     content = b""
+    
+    cmd = [
+        "curl", "-sL",
+        "--max-time", "10",
+        "--max-filesize", "5242880", # 5MB limit
+        "--resolve", f"{hostname}:{port}:{ip}",
+        url
+    ]
     
     for delay in retries + [0]:
         try:
-            response = requests.get(url, timeout=10, allow_redirects=False, stream=True)
-            response.raise_for_status()
+            res = subprocess.run(cmd, capture_output=True)
+            if res.returncode == 0:
+                content = res.stdout
+                break
+            elif res.returncode == 63: # curl error 63 is filesize exceeded
+                raise ScrapingError("Response exceeded max size of 5MB")
+            else:
+                last_error = f"curl error {res.returncode}"
+        except Exception as e:
+            if isinstance(e, ScrapingError):
+                raise
+            last_error = str(e)
             
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > MAX_RESPONSE_BYTES:
-                raise ScrapingError("Response too large")
-                
-            content = b""
-            for chunk in response.iter_content(chunk_size=8192):
-                content += chunk
-                if len(content) > MAX_RESPONSE_BYTES:
-                    raise ScrapingError("Response exceeded max size")
-            break
-        except requests.RequestException as e:
-            if delay == 0:
-                raise ScrapingError(f"Failed to scrape {url} after retries: {e}")
-            time.sleep(delay)
+        if delay == 0:
+            raise ScrapingError(f"Failed to scrape {url} after retries: {last_error}")
+        time.sleep(delay)
             
-    if not response:
-        raise ScrapingError(f"Failed to scrape {url}")
+    if not content:
+        raise ScrapingError(f"Failed to scrape {url}: no content returned")
         
     soup = BeautifulSoup(content, 'html.parser')
     

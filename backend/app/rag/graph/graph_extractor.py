@@ -103,7 +103,8 @@ async def extract_and_store_graph(text: str):
     manager = get_neo4j_manager()
 
     for entity in graph_data.get("entities", []):
-        manager.add_entity(
+        await asyncio.to_thread(
+            manager.add_entity,
             label=entity.get("type", "Entity").replace(" ", ""),
             name=entity.get("name"),
             description=entity.get("description", ""),
@@ -116,7 +117,8 @@ async def extract_and_store_graph(text: str):
             .replace(" ", "_")
             .replace("-", "_")
         )
-        manager.add_relationship(
+        await asyncio.to_thread(
+            manager.add_relationship,
             source_name=rel.get("source"),
             target_name=rel.get("target"),
             relationship_type=rel_type,

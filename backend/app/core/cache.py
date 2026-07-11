@@ -37,14 +37,26 @@ async def get_cache(key: str) -> Optional[Any]:
     else:
         return _local_cache.get(key)
 
-async def set_cache(key: str, value: Any, ttl: int = 86400):
+async def set_cache(key: str, value: Any, ttl: Optional[int] = 86400):
     if _redis_client:
         try:
-            await _redis_client.setex(key, ttl, json.dumps(value))
+            if ttl is None:
+                await _redis_client.set(key, json.dumps(value))
+            else:
+                await _redis_client.setex(key, ttl, json.dumps(value))
         except Exception as e:
             logger.error("Redis set error", error=str(e), key=key)
     else:
         _local_cache[key] = value
+
+async def delete_cache(key: str):
+    if _redis_client:
+        try:
+            await _redis_client.delete(key)
+        except Exception as e:
+            logger.error("Redis delete error", error=str(e), key=key)
+    else:
+        _local_cache.pop(key, None)
 
 async def increment_metric(key: str, amount: float = 1.0):
     if _redis_client:

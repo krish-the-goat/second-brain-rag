@@ -53,6 +53,10 @@ class LLMManager:
                     logger.warning(f"Rate limit hit! Switching LLM Provider from {self.primary_provider} to {self.fallback_provider}")
                     self.active_provider = self.fallback_provider
                     self.last_fallback_time = time.time()
+                elif self.active_provider == self.fallback_provider and self.gemini_key:
+                    logger.warning(f"Fallback rate limit hit! Switching back to {self.primary_provider}")
+                    self.active_provider = self.primary_provider
+                    self.last_fallback_time = time.time()
                 else:
                     logger.error(f"Cannot fallback. Active provider is already {self.active_provider} or backup key missing.")
 

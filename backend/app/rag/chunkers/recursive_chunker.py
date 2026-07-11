@@ -1,24 +1,11 @@
 import os
 import uuid
 import hashlib
-from typing import List
+from typing import List, Dict, Tuple
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Key for looking up the parent chunk in the separate parent store.
-# We no longer embed the full parent text inside every child's metadata (that
-# multiplied storage by ~5x and bloated ChromaDB). Instead each child stores
-# only a parent_id, and callers that need the parent text look it up via the
-# in-memory parent store returned alongside the child chunks.
-_PARENT_STORE: dict[str, str] = {}  # parent_id -> parent_text
-
-
-def get_parent_text(parent_id: str) -> str:
-    """Look up a parent chunk by its id. Returns empty string if not found."""
-    return _PARENT_STORE.get(parent_id, "")
-
-
-def chunk_documents(documents: List[Document]) -> List[Document]:
+def chunk_documents(documents: List[Document]) -> Tuple[List[Document], Dict[str, str]]:
     """
     Parent-Child chunking strategy for Advanced RAG.
 
@@ -44,13 +31,14 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
     )
 
     final_child_docs: List[Document] = []
+    parent_store: Dict[str, str] = {}
 
     for doc in documents:
         parent_chunks = parent_splitter.split_text(doc.page_content)
 
         for p_idx, parent_text in enumerate(parent_chunks):
             parent_id = str(uuid.uuid4())
-            _PARENT_STORE[parent_id] = parent_text  # lightweight in-memory store
+            parent_store[parent_id] = parent_text
 
             child_chunks = child_splitter.split_text(parent_text)
 
@@ -69,4 +57,4 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
                     Document(page_content=child_text, metadata=new_metadata)
                 )
 
-    return final_child_docs
+    return final_child_docs, parent_store
