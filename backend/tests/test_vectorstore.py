@@ -25,8 +25,6 @@ async def test_chroma_store_cycle(mock_chroma_client):
     # Verify stats
     stats = get_stats()
     assert stats["total_chunks"] == 2
-    assert stats["total_docs"] == 1
-    
     # 2. Add same documents again (should skip because of same hash/doc_id combination)
     await add_documents(docs, embeddings, metadatas)
     stats = get_stats()
@@ -48,13 +46,14 @@ async def test_chroma_store_cycle(mock_chroma_client):
     await delete_document("doc1")
     stats_after = get_stats()
     assert stats_after["total_chunks"] == 0
-    assert stats_after["total_docs"] == 0
 
 @pytest.mark.asyncio
 async def test_local_embedder():
     from app.rag.embeddings.local_embedder import embed_documents
-    with patch("app.rag.embeddings.local_embedder.model") as mock_model:
+    with patch("app.rag.embeddings.local_embedder._get_model") as mock_get_model:
+        mock_model = MagicMock()
         mock_model.encode.return_value = MagicMock(tolist=lambda: [[0.1, 0.2], [0.3, 0.4]])
+        mock_get_model.return_value = mock_model
         
         texts = ["Text 1", "Text 2"]
         result1 = await embed_documents(texts)

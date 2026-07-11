@@ -87,13 +87,14 @@ async def test_docx_loader_success(dummy_docx):
     assert "This is the second paragraph." in docs[2].page_content
 
 @pytest.mark.asyncio
-@patch("requests.get")
-async def test_web_loader_success(mock_get, dummy_url):
-    mock_response = MagicMock()
-    mock_response.headers = {"Content-Length": "100"}
-    mock_response.iter_content.return_value = [b"<html><head><title>Test</title></head><body><nav>Nav</nav><p>Main content.</p><footer>Footer</footer></body></html>"]
-    mock_response.raise_for_status.return_value = None
-    mock_get.return_value = mock_response
+@patch("subprocess.run")
+@patch("socket.getaddrinfo")
+async def test_web_loader_success(mock_dns, mock_run, dummy_url):
+    mock_dns.return_value = [(None, None, None, None, ("8.8.8.8", 443))]
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_res.stdout = b"<html><head><title>Test</title></head><body><nav>Nav</nav><p>Main content.</p><footer>Footer</footer></body></html>"
+    mock_run.return_value = mock_res
     
     docs = await load_web(dummy_url)
     assert len(docs) == 1
@@ -104,10 +105,14 @@ async def test_web_loader_success(mock_get, dummy_url):
     assert docs[0].metadata["title"] == "Test"
 
 @pytest.mark.asyncio
-@patch("requests.get")
-async def test_web_loader_scraping_error(mock_get, dummy_url):
-    import requests
-    mock_get.side_effect = requests.RequestException("Network error")
+@patch("subprocess.run")
+@patch("socket.getaddrinfo")
+async def test_web_loader_scraping_error(mock_dns, mock_run, dummy_url):
+    mock_dns.return_value = [(None, None, None, None, ("8.8.8.8", 443))]
+    mock_res = MagicMock()
+    mock_res.returncode = 1
+    mock_res.stdout = b""
+    mock_run.return_value = mock_res
     
     with patch("time.sleep") as mock_sleep:
         with pytest.raises(ScrapingError):
@@ -120,11 +125,11 @@ def test_recursive_chunker():
     os.environ["CHUNK_SIZE"] = "1000"
     os.environ["CHUNK_OVERLAP"] = "100"
     
-    chunks = chunk_documents([doc])
+    chunks, parent_store = chunk_documents([doc])
     
     assert len(chunks) > 1
     for chunk in chunks:
         assert chunk.metadata["source"] == "test"
         assert "chunk_index" in chunk.metadata
-        assert "parent_content" in chunk.metadata
+        assert "parent_id" in chunk.metadata
         assert len(chunk.page_content) <= 1000
