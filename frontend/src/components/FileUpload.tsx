@@ -1,17 +1,19 @@
 import React, { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { UploadCloud, AlertCircle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { UploadCloud, AlertCircle, CheckCircle2, XCircle, Loader2, Link } from 'lucide-react';
 import api from '../services/api';
 
 const MAX_SIZE_MB = 10;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 const JOB_POLL_INTERVAL_MS = 2000;
-const JOB_POLL_TIMEOUT_MS = 120_000; // 2 minutes max wait
+const JOB_POLL_TIMEOUT_MS = 300_000; // 5 minutes max wait
 
 type IndexingState = 'idle' | 'uploading' | 'indexing' | 'done' | 'failed';
 
 export default function FileUpload() {
   const [dragActive, setDragActive] = useState(false);
+  const [activeTab, setActiveTab] = useState<'file' | 'url'>('file');
+  const [urlInput, setUrlInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [indexingState, setIndexingState] = useState<IndexingState>('idle');
@@ -77,6 +79,41 @@ export default function FileUpload() {
     },
   });
 
+  const urlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      setIndexingState('uploading');
+      const res = await api.post('/documents/url', { url });
+      return res.data as { job_id: string; status: string };
+    },
+    onSuccess: async (data) => {
+      setIndexingState('indexing');
+      setProgress(100);
+      await pollJobStatus(data.job_id);
+    },
+    onError: (err: any) => {
+      if (err.response?.status === 429) {
+        setError('Rate limit reached (2 requests per minute). Please wait.');
+      } else {
+        setError(err.response?.data?.detail || err.message || 'URL ingestion failed');
+      }
+      setIndexingState('failed');
+      setProgress(0);
+    },
+  });
+
+  const handleUrlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    let finalUrl = urlInput.trim();
+    if (!finalUrl) return;
+    
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+      finalUrl = 'https://' + finalUrl;
+    }
+    
+    urlMutation.mutate(finalUrl);
+  };
+
   const validateFile = (file: globalThis.File): boolean => {
     setError(null);
     setIndexingState('idle');
@@ -128,6 +165,48 @@ export default function FileUpload() {
 
   return (
     <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
+        <button
+          onClick={() => { setActiveTab('file'); setError(null); }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'file' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+            color: activeTab === 'file' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: activeTab === 'file' ? 600 : 400,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            transition: 'all 0.2s'
+          }}
+          disabled={busy}
+        >
+          <UploadCloud size={18} /> File Upload
+        </button>
+        <button
+          onClick={() => { setActiveTab('url'); setError(null); }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'url' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+            color: activeTab === 'url' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: activeTab === 'url' ? 600 : 400,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            transition: 'all 0.2s'
+          }}
+          disabled={busy}
+        >
+          <Link size={18} /> Web URL
+        </button>
+      </div>
+
+      {activeTab === 'file' ? (
       <div
         className={`dropzone ${dragActive ? 'active' : ''}`}
         onDragEnter={handleDrag}
@@ -175,6 +254,56 @@ export default function FileUpload() {
           </div>
         )}
       </div>
+      ) : (
+        <form onSubmit={handleUrlSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-xl)', border: 'var(--glass-border)' }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+              Website URL
+            </label>
+            <input
+              type="text"
+              placeholder="https://example.com/article"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              disabled={busy}
+              style={{
+                width: '100%',
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border)',
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy || !urlInput.trim()}
+            style={{
+              padding: '0.75rem 1.5rem',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: 'var(--accent-primary)',
+              color: '#000',
+              fontWeight: 600,
+              cursor: busy || !urlInput.trim() ? 'not-allowed' : 'pointer',
+              opacity: busy || !urlInput.trim() ? 0.7 : 1,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            {indexingState === 'uploading' || indexingState === 'indexing' ? (
+              <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Scrape in progress...</>
+            ) : (
+              <><Link size={18} /> Scrape Website</>
+            )}
+          </button>
+        </form>
+      )}
 
       {error && (
         <div className="error-box" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

@@ -16,3 +16,4 @@
 ✓ Step 5 — Performance: Rewrite bm25_store.py to SQLite FTS5 — verified via python interpreter.
 ✓ Step 6 — Performance: Fix ChromaDB get_stats() OOM risk — verified via python interpreter.
 ✓ Step 7 — Testing: Write E2E test test_chat_stream.py — Executed pytest, endpoint successfully streamed SSE format chunks and passed.
+✓ Step 1 — frontend URL upload UI — modified FileUpload.tsx, added useMutation, validated using npx tsc --noEmit. Success.
