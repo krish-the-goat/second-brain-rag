@@ -33,6 +33,9 @@ jobs:
         RAGAS_MIN_RECALL: "0.70"
       run: |
         export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
+        pip install fpdf python-docx
+        python generate_samples.py
+        python evaluation/ingest_test_docs.py
         python evaluation/custom_eval.py
         
     - name: Upload Evaluation Report

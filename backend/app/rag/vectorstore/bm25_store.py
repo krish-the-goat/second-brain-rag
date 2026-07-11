@@ -69,11 +69,17 @@ class BM25Store:
         logger.info(f"Deleted chunks from BM25 for doc_id: {doc_id}")
 
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        import re
         if not query.strip():
             return []
             
-        # Standardize query format (naive FTS5 escaping)
-        safe_query = query.replace('"', '""').replace("'", "''")
+        # Standardize query format for FTS5
+        # Strip non-alphanumeric characters which break FTS5 MATCH parser, and join with OR for BM25-like scoring
+        words = [w for w in re.split(r'\W+', query) if w]
+        if not words:
+            return []
+        safe_query = " OR ".join(words)
+        
         try:
             cursor = self.conn.execute(
                 f"""
