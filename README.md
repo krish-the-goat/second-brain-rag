@@ -14,10 +14,14 @@ This isn't just a basic semantic search script. It's packed with heavy engineeri
 *   **GraphRAG Augmentation:** As you upload documents, the system uses LLMs to extract entities and relationships, building a live Knowledge Graph in **Neo4j**. When you ask a question, it traverses this graph to provide multi-hop relational context!
 *   **Multi-Provider LLM Fallback (Zero Downtime):** AI APIs drop constantly. If the primary provider (Gemini 2.5) hits a rate limit (429) or fails, the `LLMManager` instantly hot-swaps the payload format and falls back to **Groq (LLaMa 3.3 70B)** mid-stream without the user ever noticing.
 *   **Military-Grade Security (OWASP Top 10 LLM 2025):** I took security very seriously.
-    *   **Prompt Injection Defense:** User queries are strictly isolated in XML `<USER_QUERY>` tags with hardcoded behavioral boundaries.
-    *   **DoS & Zip Bomb Protection:** Strict limits on PDF pages (500) and DOCX paragraphs (10,000) to prevent memory exhaustion (OOM) attacks.
-    *   **SSRF Protection:** Web scraping explicitly resolves hostnames and drops local/private IPs (AWS metadata, localhost).
-    *   **Data Isolation:** All database ports (Redis, Neo4j, Chroma) are strictly locked down to localhost to prevent external network exposure.
+    *   **Prompt Injection Defense:** User queries are strictly isolated in XML `<USER_QUERY>` tags, with aggressive character escaping (`<` and `>`) to make structural breakouts impossible.
+    *   **DoS & Memory Protection:** Strict limits on file sizes and chunk batching (32 chunks/batch) for local embeddings to prevent Out of Memory (OOM) attacks.
+    *   **SSRF & TOCTOU Protection:** Web scraping explicitly resolves hostnames, drops local/private IPs, and strictly pins the connection to the validated IP using `curl --resolve` to completely mitigate DNS Rebinding attacks.
+    *   **Data Isolation:** Semantic cache keys are securely salted with the API Key, ensuring zero cross-tenant data leakage, while all internal database ports remain locked down to localhost.
+*   **Performance & Reliability Architecture:**
+    *   **Event Loop Liberation:** Synchronous CPU-bound (`sentence-transformers`) and blocking I/O tasks (`neo4j` driver) are offloaded using `asyncio.to_thread`, keeping the FastAPI event loop perfectly non-blocking.
+    *   **Concurrent Graph Extraction:** Employs bounded concurrency (`asyncio.Semaphore`) to extract relationships simultaneously without exhausting Neo4j connection pools.
+    *   **Persistent RAG State:** Chunk-to-parent mapping (`_PARENT_STORE`) is fully persisted in Redis, surviving server restarts seamlessly with built-in garbage collection.
 *   **Premium Chat UI:** A sleek, glassmorphism React interface featuring Server-Sent Events (SSE) for real-time text streaming, complete with clickable document citations.
 
 ---
