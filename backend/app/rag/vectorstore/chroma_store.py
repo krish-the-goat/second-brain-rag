@@ -150,6 +150,4 @@ async def list_documents() -> List[Dict]:
 
 def get_stats() -> Dict[str, int]:
     collection = get_collection()
-    results = collection.get(include=["metadatas"])
-    doc_ids = {m["doc_id"] for m in results["metadatas"] if "doc_id" in m}
-    return {"total_docs": len(doc_ids), "total_chunks": collection.count()}
+    return {"total_chunks": collection.count()}

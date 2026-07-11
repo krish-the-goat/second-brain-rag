@@ -84,15 +84,11 @@ async def request_id_middleware(request: Request, call_next):
                 status_code=response.status_code,
                 duration_ms=duration_ms)
                 
-    # Update average response time metric
-    current_avg = await get_metric("avg_response_time_ms")
-    total_reqs = await get_metric("total_http_requests")
-    
-    new_avg = ((current_avg * total_reqs) + duration_ms) / (total_reqs + 1)
-    # Cache doesn't have a direct "set" for metrics except increment, but we can use set_cache
-    from app.core.cache import set_cache
-    await set_cache("avg_response_time_ms", new_avg)
-    await increment_metric("total_http_requests", 1)
+    try:
+        await increment_metric("total_response_time_ms", duration_ms)
+        await increment_metric("total_http_requests", 1)
+    except Exception as e:
+        logger.error("Failed to track metrics", error=str(e))
     
     return response
 

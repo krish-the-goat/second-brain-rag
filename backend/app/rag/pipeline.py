@@ -176,8 +176,8 @@ class RAGPipeline:
                 if e.response.status_code != 429:
                     break
             except Exception as e:
-                logger.error(f"{provider} API failed: {e}")
-                answer = f"Error generating answer: {e}"
+                logger.error(f"{provider} API failed", error_type=e.__class__.__name__)
+                answer = "Error generating answer. Check server logs."
                 break
 
         generation_ms = (time.time() - t1) * 1000
@@ -292,12 +292,12 @@ class RAGPipeline:
             if e.response.status_code == 429:
                 msg = "\n\n⚠️ **API Rate Limit Exceeded.** You've hit the rate limits for all fallback providers."
             else:
-                logger.error(f"API stream failed: {e}")
+                logger.error(f"API stream HTTP error", status=e.response.status_code)
                 msg = f"Stream error ({e.response.status_code}). Check server logs."
             yield f"data: {json.dumps({'text': msg})}\n\n"
         except Exception as e:
-            logger.error(f"API stream failed: {e}")
-            yield f"data: {json.dumps({'text': f'Streaming error: {e}'})}\n\n"
+            logger.error("API stream failed", error_type=e.__class__.__name__)
+            yield f"data: {json.dumps({'text': 'Streaming error occurred. Check server logs.'})}\n\n"
 
         tokens_used = generated_chars // 4
         await self._log_and_track_metrics(question, hybrid_results, tokens_used)
