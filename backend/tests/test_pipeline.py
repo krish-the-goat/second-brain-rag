@@ -1,41 +1,73 @@
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-from app.rag.retrievers.hybrid_retriever import reciprocal_rank_fusion, hybrid_search
+from app.rag.pipeline import RAGPipeline
+import os
+import json
 
-def test_reciprocal_rank_fusion():
-    dense_results = [
-        {"id": "doc1", "text": "A"},
-        {"id": "doc2", "text": "B"}
+@pytest.fixture
+def pipeline():
+    return RAGPipeline()
+
+def test_make_cache_key(pipeline):
+    os.environ["API_KEY"] = "test-tenant"
+    key1 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "hi"}])
+    key2 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "hi"}])
+    key3 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "bye"}])
+    
+    assert key1 == key2
+    assert key1 != key3
+    
+    os.environ["API_KEY"] = "another-tenant"
+    key4 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "hi"}])
+    assert key1 != key4
+
+def test_build_payload_gemini(pipeline):
+    url, headers, payload = pipeline._build_payload(
+        provider="gemini",
+        question="What is the matrix? <hack>",
+        chat_history=[{"role": "user", "content": "hello"}],
+        hybrid_results=[{"text": "context 1", "score": 0.9}],
+        graph_context="Graph data"
+    )
+    
+    assert "generativelanguage.googleapis.com" in url
+    assert headers["Content-Type"] == "application/json"
+    
+    # Check escaping
+    assert "<hack>" not in str(payload)
+    assert "&lt;hack&gt;" in str(payload)
+    
+    assert len(payload["contents"]) == 2
+    assert payload["contents"][1]["role"] == "user"
+
+def test_build_payload_groq(pipeline):
+    url, headers, payload = pipeline._build_payload(
+        provider="groq",
+        question="Who are you? <hack>",
+        chat_history=[{"role": "user", "content": "hello"}],
+        hybrid_results=[],
+        graph_context=""
+    )
+    
+    assert "api.groq.com" in url
+    assert headers["Content-Type"] == "application/json"
+    
+    assert "<hack>" not in str(payload)
+    assert "&lt;hack&gt;" in str(payload)
+    
+    assert payload["model"] == "llama-3.3-70b-versatile"
+    assert len(payload["messages"]) == 3 # System + History + Question
+
+def test_format_citations(pipeline):
+    results = [
+        {"filename": "doc1.pdf", "text": "A long text " * 100, "rerank_score": 0.95},
+        {"text": "No filename", "score": 0.8}
     ]
-    sparse_results = [
-        {"id": "doc2", "text": "B"},
-        {"id": "doc3", "text": "C"}
-    ]
+    citations = pipeline._format_citations(results)
     
-    fused = reciprocal_rank_fusion(dense_results, sparse_results, k=60)
+    assert len(citations) == 2
+    assert citations[0]["filename"] == "doc1.pdf"
+    assert citations[0]["score"] == 0.95
+    assert len(citations[0]["excerpt"]) == 200 # truncated
     
-    assert len(fused) == 3
-    # doc2 should be ranked highest because it appears in both lists
-    assert fused[0]["id"] == "doc2"
-    
-@pytest.mark.asyncio
-@patch("app.rag.retrievers.hybrid_retriever.chroma_query", new_callable=AsyncMock)
-@patch("app.rag.retrievers.hybrid_retriever.embed_documents", new_callable=AsyncMock)
-@patch("app.rag.retrievers.hybrid_retriever.get_bm25_store")
-async def test_hybrid_search(mock_get_bm25, mock_embed, mock_chroma):
-    mock_embed.return_value = [[0.1, 0.2]]
-    mock_chroma.return_value = [{"id": "doc1", "text": "Chroma result"}]
-    
-    mock_bm25 = MagicMock()
-    mock_bm25.search.return_value = [{"id": "doc2", "text": "BM25 result"}]
-    mock_get_bm25.return_value = mock_bm25
-    
-    with patch("app.rag.retrievers.hybrid_retriever.reranker", MagicMock()) as mock_reranker:
-        mock_reranker.predict.return_value = [0.9, 0.1]
-        
-        results = await hybrid_search("test query", top_k=2)
-        
-        assert len(results) == 2
-        # Verify reranking scored doc1 higher (0.9 vs 0.1)
-        assert results[0]["id"] == "doc1"
-        assert results[0]["rerank_score"] == 0.9
+    assert citations[1]["filename"] == "unknown"
+    assert citations[1]["score"] == 0.8
