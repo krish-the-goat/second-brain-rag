@@ -1,12 +1,14 @@
 import os
 import json
 import structlog
+import time
 from typing import Any, Optional
 
 logger = structlog.get_logger(__name__)
 
 _redis_client = None
 _local_cache = {}
+MAX_LOCAL_KEYS = 10000
 
 async def init_cache():
     global _redis_client
@@ -35,7 +37,14 @@ async def get_cache(key: str) -> Optional[Any]:
             logger.error("Redis get error", error=str(e), key=key)
             return None
     else:
-        return _local_cache.get(key)
+        item = _local_cache.get(key)
+        if item is None:
+            return None
+        value, expiry = item
+        if expiry is not None and time.time() > expiry:
+            _local_cache.pop(key, None)
+            return None
+        return value
 
 async def set_cache(key: str, value: Any, ttl: Optional[int] = 86400):
     if _redis_client:
@@ -47,7 +56,19 @@ async def set_cache(key: str, value: Any, ttl: Optional[int] = 86400):
         except Exception as e:
             logger.error("Redis set error", error=str(e), key=key)
     else:
-        _local_cache[key] = value
+        if len(_local_cache) >= MAX_LOCAL_KEYS:
+            now = time.time()
+            expired_keys = [k for k, v in _local_cache.items() if v[1] is not None and v[1] < now]
+            for k in expired_keys:
+                _local_cache.pop(k, None)
+            
+            if len(_local_cache) >= MAX_LOCAL_KEYS:
+                keys_to_remove = list(_local_cache.keys())[:1000]
+                for k in keys_to_remove:
+                    _local_cache.pop(k, None)
+                    
+        expiry = time.time() + ttl if ttl else None
+        _local_cache[key] = (value, expiry)
 
 async def delete_cache(key: str):
     if _redis_client:
@@ -68,7 +89,12 @@ async def increment_metric(key: str, amount: float = 1.0):
         except Exception as e:
             logger.error("Redis increment error", error=str(e), key=key)
     else:
-        _local_cache[key] = _local_cache.get(key, 0) + amount
+        item = _local_cache.get(key)
+        if item:
+            val, expiry = item
+        else:
+            val, expiry = 0, None
+        _local_cache[key] = (val + amount, expiry)
 
 async def get_metric(key: str) -> float:
     if _redis_client:
@@ -79,7 +105,14 @@ async def get_metric(key: str) -> float:
             logger.error("Redis get metric error", error=str(e), key=key)
             return 0.0
     else:
-        return float(_local_cache.get(key, 0.0))
+        item = _local_cache.get(key)
+        if item:
+            val, expiry = item
+            if expiry is not None and time.time() > expiry:
+                _local_cache.pop(key, None)
+                return 0.0
+            return float(val)
+        return 0.0
 
 async def close_cache():
     if _redis_client:

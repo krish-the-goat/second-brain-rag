@@ -48,8 +48,9 @@ async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
         dense_results = await chroma_query(embeddings[0], n_results=fetch_k, score_threshold=0.0)
         
     # 2. Fetch Sparse (BM25)
+    import asyncio
     bm25_store = get_bm25_store()
-    sparse_results = bm25_store.search(query, top_k=fetch_k)
+    sparse_results = await asyncio.to_thread(bm25_store.search, query, fetch_k)
     
     # 3. RRF Fusion
     fused_results = reciprocal_rank_fusion(dense_results, sparse_results)
