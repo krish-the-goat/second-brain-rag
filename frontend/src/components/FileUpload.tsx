@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { UploadCloud, AlertCircle, CheckCircle2, XCircle, Loader2, Link } from 'lucide-react';
 import api from '../services/api';
@@ -20,6 +20,15 @@ export default function FileUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    const activeJobId = sessionStorage.getItem('activeJobId');
+    if (activeJobId) {
+      setIndexingState('indexing');
+      setProgress(100);
+      pollJobStatus(activeJobId);
+    }
+  }, []);
+
   // Polls /documents/jobs/:jobId until completion or timeout.
   const pollJobStatus = async (jobId: string): Promise<void> => {
     const deadline = Date.now() + JOB_POLL_TIMEOUT_MS;
@@ -30,6 +39,7 @@ export default function FileUpload() {
         const status: string = res.data.status ?? 'unknown';
         if (status === 'completed') {
           setIndexingState('done');
+          sessionStorage.removeItem('activeJobId');
           queryClient.invalidateQueries({ queryKey: ['documents'] });
           return;
         }
@@ -37,18 +47,21 @@ export default function FileUpload() {
           const reason = status.replace('failed: ', '');
           setError(`Indexing failed: ${reason}`);
           setIndexingState('failed');
+          sessionStorage.removeItem('activeJobId');
           return;
         }
         // still "processing" — keep polling
       } catch (e: any) {
         setError(e.response?.data?.detail || e.message || 'Failed to check job status');
         setIndexingState('failed');
+        sessionStorage.removeItem('activeJobId');
         return;
       }
     }
     // Timed out — treat as failed
     setError('Indexing timed out. The file may be too large or the server is busy.');
     setIndexingState('failed');
+    sessionStorage.removeItem('activeJobId');
   };
 
   const uploadMutation = useMutation({
@@ -70,6 +83,7 @@ export default function FileUpload() {
     onSuccess: async (data) => {
       setIndexingState('indexing');
       setProgress(100);
+      sessionStorage.setItem('activeJobId', data.job_id);
       await pollJobStatus(data.job_id);
     },
     onError: (err: any) => {
@@ -88,6 +102,7 @@ export default function FileUpload() {
     onSuccess: async (data) => {
       setIndexingState('indexing');
       setProgress(100);
+      sessionStorage.setItem('activeJobId', data.job_id);
       await pollJobStatus(data.job_id);
     },
     onError: (err: any) => {
