@@ -43,11 +43,15 @@ class RAGPipeline:
             headers = {"Content-Type": "application/json"}
             
             contents = []
+            import html
             for msg in chat_history:
                 if msg.get("role") in ["user", "assistant", "model"]:
+                    safe_content = html.escape(msg.get("content", ""))
+                    role_tag = "USER" if msg["role"] == "user" else "ASSISTANT"
+                    wrapped_content = f"<HISTORY_TURN_{role_tag}>\n{safe_content}\n</HISTORY_TURN_{role_tag}>"
                     contents.append({
                         "role": "model" if msg["role"] in ["assistant", "model"] else "user",
-                        "parts": [{"text": msg.get("content", "")}],
+                        "parts": [{"text": wrapped_content}],
                     })
             contents.append({"role": "user", "parts": [{"text": f"<USER_QUERY>\n{safe_question}\n</USER_QUERY>"}]})
             
@@ -65,11 +69,15 @@ class RAGPipeline:
             }
             
             messages = [{"role": "system", "content": system_prompt}]
+            import html
             for msg in chat_history:
                 if msg.get("role") in ["user", "assistant", "model"]:
+                    safe_content = html.escape(msg.get("content", ""))
+                    role_tag = "USER" if msg["role"] == "user" else "ASSISTANT"
+                    wrapped_content = f"<HISTORY_TURN_{role_tag}>\n{safe_content}\n</HISTORY_TURN_{role_tag}>"
                     messages.append({
                         "role": "assistant" if msg["role"] in ["assistant", "model"] else "user",
-                        "content": msg.get("content", "")
+                        "content": wrapped_content
                     })
             messages.append({"role": "user", "content": f"<USER_QUERY>\n{safe_question}\n</USER_QUERY>"})
             

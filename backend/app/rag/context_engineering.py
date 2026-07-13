@@ -15,7 +15,11 @@ except Exception:
 
 def count_tokens(text: str) -> int:
     if enc:
-        return len(enc.encode(text))
+        try:
+            return len(enc.encode(text, allowed_special="all"))
+        except Exception as e:
+            logger.warning(f"Tokenizer error (likely special tokens): {e}")
+            return len(text) // 4
     # Fallback heuristic: 1 token ~= 4 characters
     return len(text) // 4
 
