@@ -5,11 +5,16 @@ from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Request, HTTPE
 from pydantic import BaseModel, HttpUrl, Field
 from typing import Dict, Any
 
-from app.rag.vectorstore.chroma_store import list_documents, delete_document
+from app.rag.vectorstore.chroma_store import delete_document, get_document_parents
+from app.rag.vectorstore.bm25_store import get_bm25_store
 from app.core.exceptions import DocumentTooLargeError
-from app.core.cache import get_cache
+from app.core.cache import get_cache, delete_cache
 from app.core.rate_limit import limiter
 from app.rag.ingestion import ingestion_pipeline
+import structlog
+import asyncio
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -87,7 +92,7 @@ async def upload_url(
 
 @router.get("")
 async def get_documents(request: Request):
-    docs = await list_documents()
+    docs = await asyncio.to_thread(get_bm25_store().get_document_metadata)
     return {"documents": docs}
 
 
@@ -101,20 +106,14 @@ async def get_job_status(job_id: str, request: Request):
 
 @router.delete("/{doc_id}")
 async def delete_doc(doc_id: str, request: Request):
-    from app.rag.vectorstore.bm25_store import get_bm25_store
-    from app.rag.vectorstore.chroma_store import delete_document, get_document_parents
-    from app.core.cache import delete_cache
-    import structlog
-    
-    logger = structlog.get_logger(__name__)
-    
     # Clean up parent chunks from Redis
     parents = await get_document_parents(doc_id)
     for p_id in parents:
         await delete_cache(f"parent:{p_id}")
         
+    # Transactional safety is handled best-effort via execution ordering
     await delete_document(doc_id)
-    get_bm25_store().delete_documents_by_doc_id(doc_id)
+    await asyncio.to_thread(get_bm25_store().delete_documents_by_doc_id, doc_id)
     
     logger.info("Document deleted", doc_id=doc_id)
     return {"status": "deleted"}

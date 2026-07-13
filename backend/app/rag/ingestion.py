@@ -9,8 +9,9 @@ from app.rag.loaders.docx_loader import load_docx
 from app.rag.loaders.web_loader import load_web
 from app.rag.chunkers.recursive_chunker import chunk_documents
 from app.rag.embeddings.local_embedder import embed_documents
-from app.rag.vectorstore.chroma_store import add_documents
-from app.core.exceptions import UnsupportedFormatError
+from app.rag.vectorstore.chroma_store import add_documents, delete_document, get_document_parents
+from app.rag.vectorstore.bm25_store import get_bm25_store
+from app.core.exceptions import UnsupportedFormatError, ProcessingError, DocumentTooLargeError
 from app.core.cache import set_cache
 
 logger = structlog.get_logger(__name__)
@@ -37,9 +38,12 @@ class IngestionPipeline:
 
             await set_cache(f"job:{job_id}", "completed")
 
-        except Exception as e:
+        except (UnsupportedFormatError, ProcessingError, DocumentTooLargeError) as e:
             logger.error(f"Ingestion failed for file {filename}: {e}")
             await set_cache(f"job:{job_id}", f"failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Ingestion failed for file {filename}: {e}")
+            await set_cache(f"job:{job_id}", "failed: An unexpected internal error occurred.")
         finally:
             try:
                 if os.path.exists(file_path):
@@ -54,9 +58,12 @@ class IngestionPipeline:
             docs = await load_web(url)
             await IngestionPipeline._process_docs(docs, job_id, url)
             await set_cache(f"job:{job_id}", "completed")
-        except Exception as e:
+        except (UnsupportedFormatError, ProcessingError, DocumentTooLargeError) as e:
             logger.error(f"Ingestion failed for URL {url}: {e}")
             await set_cache(f"job:{job_id}", f"failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Ingestion failed for URL {url}: {e}")
+            await set_cache(f"job:{job_id}", "failed: An unexpected internal error occurred.")
 
     @staticmethod
     async def _process_docs(docs: List[Document], job_id: str, source_id: str):
@@ -87,6 +94,15 @@ class IngestionPipeline:
                 graph_texts.append(parent_text)
 
         get_bm25_store().add_documents(bm25_docs)
+
+        import datetime
+        get_bm25_store().update_document_metadata(
+            doc_id=source_id,
+            filename=source_id,
+            chunk_count=len(texts),
+            status="completed",
+            created_at=datetime.datetime.utcnow().isoformat()
+        )
 
         sem = asyncio.Semaphore(2)
         async def bounded_extract(t: str):
