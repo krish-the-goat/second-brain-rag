@@ -28,7 +28,7 @@ def resolve_and_check(url: str) -> tuple[str, int, str]:
         info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
         ip = info[0][4][0]
     except Exception as e:
-        raise ScrapingError(f"DNS resolution failed: {e}")
+        raise ScrapingError("DNS resolution failed. The host could not be found.")
         
     ip_obj = ipaddress.ip_address(ip)
     
@@ -81,7 +81,7 @@ def _process_web_sync(url: str) -> List[Document]:
                     last_error = str(e)
                     
                 if delay == 0:
-                    raise ScrapingError(f"Failed to scrape {current_url} after retries: {last_error}")
+                    raise ScrapingError(f"Failed to scrape {current_url} after retries.")
                 time.sleep(delay)
                 
             header_data = header_file.read().decode('utf-8', errors='ignore')

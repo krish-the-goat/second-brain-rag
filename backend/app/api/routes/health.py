@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException
 import httpx
 import os
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["Health"])
 
@@ -24,7 +27,8 @@ async def readiness_check():
         from app.rag.vectorstore.chroma_store import get_stats
         get_stats()
     except Exception as e:
-        errors.append(f"ChromaDB unavailable: {e}")
+        logger.error(f"ChromaDB health check failed: {e}")
+        errors.append("ChromaDB unavailable.")
 
     # 2. Google Gemini API key validity
     google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -45,7 +49,8 @@ async def readiness_check():
                 elif resp.status_code not in (200, 404):
                     errors.append(f"Google API returned unexpected status {resp.status_code}.")
         except Exception as e:
-            errors.append(f"Google API unreachable: {e}")
+            logger.error(f"Google API health check failed: {e}")
+            errors.append("Google API unreachable.")
 
     if errors:
         raise HTTPException(status_code=503, detail={"errors": errors})
