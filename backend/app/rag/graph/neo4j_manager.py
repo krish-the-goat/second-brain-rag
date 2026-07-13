@@ -17,26 +17,11 @@ class Neo4jManager:
         password = os.getenv("NEO4J_PASSWORD", "password")
 
         self.driver = None
-
-        for attempt in range(1, _MAX_CONNECT_RETRIES + 1):
-            try:
-                driver = GraphDatabase.driver(uri, auth=(user, password))
-                # Verify connectivity — raises if Neo4j is not yet ready
-                driver.verify_connectivity()
-                self.driver = driver
-                logger.info(f"Connected to Neo4j at {uri} (attempt {attempt}).")
-                return
-            except Exception as e:
-                logger.warning(
-                    f"Neo4j connection attempt {attempt}/{_MAX_CONNECT_RETRIES} failed: {e}"
-                )
-                if attempt < _MAX_CONNECT_RETRIES:
-                    time.sleep(_RETRY_DELAY_S)
-
-        logger.error(
-            f"Could not connect to Neo4j after {_MAX_CONNECT_RETRIES} attempts. "
-            "Graph features will be disabled."
-        )
+        try:
+            self.driver = GraphDatabase.driver(uri, auth=(user, password))
+            logger.info(f"Initialized Neo4j driver for {uri} (lazy connection).")
+        except Exception as e:
+            logger.error(f"Failed to initialize Neo4j driver: {e}")
 
     def close(self):
         if self.driver:
