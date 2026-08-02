@@ -19,7 +19,7 @@ def test_chat_stream_endpoint(mock_pipeline):
     response = client.post(
         "/chat/stream",
         json={"question": "What is life?", "chat_history": []},
-        headers={"X-API-Key": "test-key"}
+        headers={"X-API-Key": "test-api-key-12345"}
     )
 
     assert response.status_code == 200
