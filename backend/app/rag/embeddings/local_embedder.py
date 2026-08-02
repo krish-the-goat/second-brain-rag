@@ -6,7 +6,8 @@ logger = get_logger(__name__)
 
 _model = None
 _model_load_attempted = False
-MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
 
 
 def _get_model():
@@ -24,8 +25,8 @@ def _get_model():
     _model_load_attempted = True
     try:
         from sentence_transformers import SentenceTransformer
-        logger.info(f"Loading local embedding model: {MODEL_NAME}")
-        _model = SentenceTransformer(MODEL_NAME)
+        logger.info(f"Loading local embedding model: {EMBEDDING_MODEL}")
+        _model = SentenceTransformer(EMBEDDING_MODEL)
         logger.info("Embedding model loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load local embedding model: {e}")
@@ -50,9 +51,8 @@ async def embed_documents(texts: List[str]) -> List[List[float]]:
             return []
 
         embeddings = []
-        batch_size = 32
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
+        for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+            batch_texts = texts[i:i + EMBEDDING_BATCH_SIZE]
             batch_embeddings = await asyncio.to_thread(model.encode, batch_texts, show_progress_bar=False)
             embeddings.extend(batch_embeddings.tolist())
         return embeddings
