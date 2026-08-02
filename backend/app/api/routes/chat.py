@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
+from typing import List
 
 from app.rag.pipeline import pipeline
 from app.core.rate_limit import limiter

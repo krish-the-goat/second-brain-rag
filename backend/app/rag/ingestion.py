@@ -9,7 +9,7 @@ from app.rag.loaders.docx_loader import load_docx
 from app.rag.loaders.web_loader import load_web
 from app.rag.chunkers.recursive_chunker import chunk_documents
 from app.rag.embeddings.local_embedder import embed_documents
-from app.rag.vectorstore.chroma_store import add_documents, delete_document, get_document_parents
+from app.rag.vectorstore.chroma_store import add_documents
 from app.rag.vectorstore.bm25_store import get_bm25_store
 from app.core.exceptions import UnsupportedFormatError, ProcessingError, DocumentTooLargeError
 from app.core.cache import set_cache
@@ -80,7 +80,6 @@ class IngestionPipeline:
         embeddings = await embed_documents(texts)
         await add_documents(texts, embeddings, metadatas)
 
-        from app.rag.vectorstore.bm25_store import get_bm25_store
         from app.rag.graph.graph_extractor import extract_and_store_graph
 
         bm25_docs = []

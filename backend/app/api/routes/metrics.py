@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 import asyncio
 from app.core.cache import get_metric
 from app.rag.vectorstore.chroma_store import get_stats

@@ -168,7 +168,7 @@ class BM25Store:
         
         try:
             cursor = self.conn.execute(
-                f"""
+                """
                 SELECT id, text, -bm25(corpus) as score 
                 FROM corpus 
                 WHERE corpus MATCH ? 

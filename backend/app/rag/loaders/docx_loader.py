@@ -12,7 +12,7 @@ def _process_docx_sync(file_path: str) -> List[Document]:
     for i, para in enumerate(doc.paragraphs):
         if i >= 10000:
             from app.core.exceptions import DocumentTooLargeError
-            raise DocumentTooLargeError(f"DOCX exceeds the maximum allowed limit of 10,000 paragraphs. This is to prevent memory exhaustion (DoS).")
+            raise DocumentTooLargeError("DOCX exceeds the maximum allowed limit of 10,000 paragraphs. This is to prevent memory exhaustion (DoS).")
             
         if not para.text.strip():
             continue

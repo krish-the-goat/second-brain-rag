@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import structlog
 
@@ -28,7 +29,6 @@ def setup_logging():
 def get_logger(name: str = None):
     return structlog.get_logger(name)
 
-import re
 
 def sanitize_error_msg(text: str) -> str:
     """Removes API keys from URLs or text before logging."""

@@ -6,7 +6,6 @@ import ipaddress
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from typing import List
-import requests
 from bs4 import BeautifulSoup
 from langchain_core.documents import Document
 from app.core.exceptions import ScrapingError
@@ -27,7 +26,7 @@ def resolve_and_check(url: str) -> tuple[str, int, str]:
         # Resolve hostname to IPv4
         info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
         ip = info[0][4][0]
-    except Exception as e:
+    except Exception:
         raise ScrapingError("DNS resolution failed. The host could not be found.")
         
     ip_obj = ipaddress.ip_address(ip)
@@ -73,12 +72,9 @@ def _process_web_sync(url: str) -> List[Document]:
                         break
                     elif res.returncode == 63: # filesize exceeded
                         raise ScrapingError("Response exceeded max size of 5MB")
-                    else:
-                        last_error = f"curl error {res.returncode}"
                 except Exception as e:
                     if isinstance(e, ScrapingError):
                         raise
-                    last_error = str(e)
                     
                 if delay == 0:
                     raise ScrapingError(f"Failed to scrape {current_url} after retries.")

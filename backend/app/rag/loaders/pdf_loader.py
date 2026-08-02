@@ -1,10 +1,10 @@
 import asyncio
 import hashlib
-from typing import List, Optional
+from typing import List
 import PyPDF2
 import pdfplumber
 from langchain_core.documents import Document
-from app.core.exceptions import ProcessingError, UnsupportedFormatError, DocumentTooLargeError
+from app.core.exceptions import ProcessingError, DocumentTooLargeError
 
 def _process_pdf_sync(file_path: str) -> List[Document]:
     documents = []
