@@ -13,6 +13,7 @@ from app.rag.context_engineering import prune_irrelevant_context, build_dynamic_
 from app.core.cache import increment_metric, get_cache, set_cache
 from app.core.llm_manager import llm_manager
 from app.core.logging import sanitize_error_msg
+from app.core.telemetry import get_tracer
 
 logger = structlog.get_logger(__name__)
 
@@ -22,24 +23,31 @@ class RAGPipeline:
         pass
 
     async def _retrieve_all_context(self, question: str) -> tuple[List[Dict], str, float]:
-        t0 = time.time()
-        hybrid_task = asyncio.create_task(hybrid_search(question, top_k=5))
-        graph_task = asyncio.create_task(retrieve_graph_context(question))
-        hybrid_results, graph_context = await asyncio.gather(hybrid_task, graph_task)
+        tracer = get_tracer("rag.pipeline")
+        with tracer.start_as_current_span("retrieve_all_context") as span:
+            t0 = time.time()
+            hybrid_task = asyncio.create_task(hybrid_search(question, top_k=5))
+            graph_task = asyncio.create_task(retrieve_graph_context(question))
+            hybrid_results, graph_context = await asyncio.gather(hybrid_task, graph_task)
 
-        threshold = float(os.getenv("RERANK_THRESHOLD", "-5.0"))
-        pruned_hybrid = prune_irrelevant_context(hybrid_results, threshold=threshold)
+            threshold = float(os.getenv("RERANK_THRESHOLD", "-5.0"))
+            pruned_hybrid = prune_irrelevant_context(hybrid_results, threshold=threshold)
 
-        retrieval_ms = (time.time() - t0) * 1000
-        return pruned_hybrid, graph_context, retrieval_ms
+            retrieval_ms = (time.time() - t0) * 1000
+            span.set_attribute("retrieval.duration_ms", retrieval_ms)
+            span.set_attribute("retrieval.hybrid_count", len(pruned_hybrid))
+            span.set_attribute("retrieval.has_graph_context", bool(graph_context))
+            return pruned_hybrid, graph_context, retrieval_ms
 
     def _build_payload(self, provider: str, question: str, chat_history: List[Dict], hybrid_results: List[Dict], graph_context: str) -> tuple[str, dict, dict]:
-        system_prompt = build_dynamic_prompt(hybrid_results, graph_context, max_tokens=4000)
+        max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "4000"))
+        system_prompt = build_dynamic_prompt(hybrid_results, graph_context, max_tokens=max_context_tokens)
         api_key = llm_manager.get_api_key(provider)
         safe_question = question.replace("<", "&lt;").replace(">", "&gt;")
         
         if provider == "gemini":
-            stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key={api_key}"
+            model = llm_manager.gemini_model
+            stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
             headers = {"Content-Type": "application/json"}
             
             contents = []
@@ -82,7 +90,7 @@ class RAGPipeline:
             messages.append({"role": "user", "content": f"<USER_QUERY>\n{safe_question}\n</USER_QUERY>"})
             
             payload = {
-                "model": "llama-3.3-70b-versatile",
+                "model": llm_manager.groq_model,
                 "messages": messages
             }
             return url, headers, payload
@@ -119,12 +127,13 @@ class RAGPipeline:
         await increment_metric("estimated_cost_usd", cost_usd)
 
     @staticmethod
-    def _make_cache_key(question: str, chat_history: List[Dict]) -> str:
+    def _make_cache_key(question: str, chat_history: List[Dict], tenant_key: str = "") -> str:
         try:
             history_str = json.dumps(chat_history, default=str)
         except TypeError:
             history_str = str(chat_history)
-        tenant_salt = os.getenv("API_KEY", "default")
+        # Salt with the tenant key for cross-tenant cache isolation
+        tenant_salt = tenant_key or os.getenv("API_KEY", "default")
         return "query_cache:" + hashlib.sha256(f"{tenant_salt}_{question}_{history_str}".encode()).hexdigest()
 
     async def ask(self, question: str, chat_history: List[Dict] = None) -> Dict[str, Any]:
@@ -152,7 +161,8 @@ class RAGPipeline:
             if provider == "gemini":
                 # For non-streaming ask, adjust the URL
                 api_key = llm_manager.get_api_key(provider)
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+                model = llm_manager.gemini_model
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
             try:
                 async with httpx.AsyncClient() as client:
@@ -300,7 +310,7 @@ class RAGPipeline:
             if e.response.status_code == 429:
                 msg = "\n\n⚠️ **API Rate Limit Exceeded.** You've hit the rate limits for all fallback providers."
             else:
-                logger.error(f"API stream HTTP error", status=e.response.status_code)
+                logger.error("API stream HTTP error", status=e.response.status_code)
                 msg = f"Stream error ({e.response.status_code}). Check server logs."
             yield f"data: {json.dumps({'text': msg})}\n\n"
         except Exception as e:
