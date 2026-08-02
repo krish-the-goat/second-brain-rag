@@ -143,19 +143,19 @@ export default function ChatInterface() {
 
   return (
     <div className="chat-container">
-      <div className="chat-header">
-        <div className="chat-status" />
+      <div className="chat-header" role="banner">
+        <div className="chat-status" aria-label="Online status indicator" />
         <h2 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>
           AI Research Assistant
         </h2>
         {messages.length > 0 && (
-          <button onClick={clearChat} className="delete-btn" title="Clear Chat" style={{ marginLeft: 'auto' }}>
-            <Trash2 size={16} />
+          <button onClick={clearChat} className="delete-btn" title="Clear Chat" aria-label="Clear chat history" style={{ marginLeft: 'auto' }}>
+            <Trash2 size={16} aria-hidden="true" />
           </button>
         )}
       </div>
 
-      <div className="chat-messages" ref={scrollRef}>
+      <div className="chat-messages" ref={scrollRef} role="log" aria-live="polite" aria-label="Chat messages">
         {messages.length === 0 && !isTyping && (
           <div
             style={{
@@ -167,7 +167,7 @@ export default function ChatInterface() {
               color: 'var(--text-muted)',
             }}
           >
-            <Bot size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} />
+            <Bot size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} aria-hidden="true" />
             <p>Ask a question about your documents.</p>
           </div>
         )}
@@ -190,12 +190,12 @@ export default function ChatInterface() {
         ))}
 
         {isTyping && messages[messages.length - 1]?.role !== 'assistant' && (
-          <div className="message ai">
+          <div className="message ai" aria-live="polite" aria-label="AI is generating a response">
             <div
               className="bubble"
               style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', minHeight: '44px' }}
             >
-              <span className="spinner" />
+              <span className="spinner" aria-hidden="true" />
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                 Synthesizing…
               </span>
@@ -205,7 +205,7 @@ export default function ChatInterface() {
       </div>
 
       <div className="chat-input-wrapper">
-        <form onSubmit={handleSend} className="input-box">
+        <form onSubmit={handleSend} className="input-box" role="search" aria-label="Send a message">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -216,11 +216,12 @@ export default function ChatInterface() {
               }
             }}
             placeholder="Ask AI Assistant…"
+            aria-label="Type your question"
             disabled={isTyping}
             rows={1}
           />
-          <button type="submit" disabled={!input.trim() || isTyping} className="btn-send">
-            <Send size={18} />
+          <button type="submit" disabled={!input.trim() || isTyping} className="btn-send" aria-label="Send message">
+            <Send size={18} aria-hidden="true" />
           </button>
         </form>
       </div>
