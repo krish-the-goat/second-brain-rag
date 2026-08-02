@@ -14,8 +14,9 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.api.routes import documents, chat, health, metrics
 from app.core.exceptions import ProcessingError, UnsupportedFormatError, DocumentTooLargeError, ScrapingError
 from app.core.logging import setup_logging
-from app.core.cache import init_cache, close_cache, increment_metric, get_metric
+from app.core.cache import init_cache, close_cache, increment_metric
 from app.core.rate_limit import limiter
+from app.core.telemetry import init_telemetry
 
 # Initialize structlog first
 setup_logging()
@@ -39,20 +40,38 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Second Brain RAG API", lifespan=lifespan)
 
+# Initialize OpenTelemetry tracing (auto-instruments FastAPI)
+init_telemetry(app)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 API_KEY = os.getenv("API_KEY")
-if not API_KEY:
-    raise RuntimeError("API_KEY environment variable is not set. Set it before starting.")
-if API_KEY == "default-secret-key-change-in-prod":
-    raise RuntimeError("API_KEY is still the default placeholder. Set a strong secret before starting.")
+API_KEYS_RAW = os.getenv("API_KEYS", "")
+
+# Build the set of valid API keys (supports multiple comma-separated keys)
+_valid_keys: set = set()
+if API_KEYS_RAW:
+    _valid_keys = {k.strip() for k in API_KEYS_RAW.split(",") if k.strip()}
+if API_KEY:
+    _valid_keys.add(API_KEY)
+
+if not _valid_keys:
+    raise RuntimeError("No API keys configured. Set API_KEY or API_KEYS environment variable.")
+if _valid_keys == {"default-secret-key-change-in-prod"} or _valid_keys == {"change-me-to-a-strong-secret"}:
+    raise RuntimeError("API key(s) are still the default placeholder. Set strong secrets before starting.")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+
 async def verify_api_key(api_key_header: str = Security(api_key_header)):
-    if not api_key_header or not secrets.compare_digest(api_key_header, API_KEY):
+    if not api_key_header:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Could not validate API Key"
+        )
+    # Constant-time comparison against each valid key
+    if not any(secrets.compare_digest(api_key_header, k) for k in _valid_keys):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Could not validate API Key"
         )
