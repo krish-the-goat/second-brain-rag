@@ -3,7 +3,6 @@ import uuid
 import tempfile
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Request, HTTPException
 from pydantic import BaseModel, HttpUrl, Field
-from typing import Dict, Any
 
 from app.rag.vectorstore.chroma_store import delete_document, get_document_parents
 from app.rag.vectorstore.bm25_store import get_bm25_store
@@ -30,13 +29,13 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ):
-    import magic
-
     max_size = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024
 
     safe_filename = os.path.basename(file.filename or "")
     if not safe_filename.endswith((".pdf", ".docx")):
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
+
+    import magic
 
     job_id = str(uuid.uuid4())
 
