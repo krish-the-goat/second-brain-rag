@@ -1,30 +1,53 @@
-fastapi
-uvicorn
-gunicorn
-langchain
-langchain-google-genai
-chromadb
-google-generativeai
-pypdf2
-pdfplumber
-python-docx
-beautifulsoup4
-requests
-slowapi
-python-jose[cryptography]
-structlog
-pydantic-settings
-aiofiles
-aioredis
-pytest
-pytest-asyncio
-httpx
-ruff
-python-multipart
-rank_bm25
-sentence-transformers
-neo4j
-networkx
-python-magic
-langchain-text-splitters
-tiktoken
+# ============================================================
+# Second Brain RAG — Production Dependencies (pinned)
+# ============================================================
+
+# --- Web Framework ---
+fastapi==0.115.6
+uvicorn==0.34.0
+gunicorn==23.0.0
+python-multipart==0.0.20
+
+# --- LLM / LangChain ---
+langchain==0.3.14
+langchain-text-splitters==0.3.4
+langchain-google-genai==2.0.8
+google-generativeai==0.8.4
+tiktoken==0.8.0
+
+# --- Vector Store ---
+chromadb==0.5.23
+
+# --- Document Loaders ---
+PyPDF2==3.0.1
+pdfplumber==0.11.4
+python-docx==1.1.2
+beautifulsoup4==4.12.3
+requests==2.32.3
+
+# --- Embeddings & Reranking ---
+sentence-transformers==3.3.1
+
+# --- Graph Database ---
+neo4j==5.27.0
+networkx==3.4.2
+
+# --- Cache & Rate Limiting ---
+aioredis==2.0.1
+slowapi==0.1.9
+
+# --- Observability ---
+structlog==24.4.0
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+
+# --- Security & Utilities ---
+python-jose[cryptography]==3.3.0
+pydantic-settings==2.7.1
+aiofiles==24.1.0
+python-magic==0.4.27
+tenacity==9.0.0
+
+# --- HTTP Client ---
+httpx==0.28.1
