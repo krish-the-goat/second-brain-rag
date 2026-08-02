@@ -1,13 +1,20 @@
 import os
 import re
-import time
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_MAX_CONNECT_RETRIES = 5
-_RETRY_DELAY_S = 3
+# Retry on transient Neo4j errors (connection drops, leader re-election, etc.)
+_neo4j_retry = retry(
+    stop=stop_after_attempt(int(os.getenv("DB_MAX_RETRIES", "3"))),
+    wait=wait_exponential(multiplier=1, min=0.5, max=5.0),
+    retry=retry_if_exception_type((ServiceUnavailable, SessionExpired, TransientError, OSError)),
+    reraise=True,
+)
 
 
 class Neo4jManager:
@@ -27,6 +34,7 @@ class Neo4jManager:
         if self.driver:
             self.driver.close()
 
+    @_neo4j_retry
     def add_entity(self, label: str, name: str, description: str = ""):
         if not self.driver or not name:
             return
@@ -41,6 +49,7 @@ class Neo4jManager:
         with self.driver.session() as session:
             session.run(query, name=name, description=description)
 
+    @_neo4j_retry
     def add_relationship(
         self,
         source_name: str,
@@ -66,6 +75,7 @@ class Neo4jManager:
         with self.driver.session() as session:
             session.run(query, source=source_name, target=target_name, context=context)
 
+    @_neo4j_retry
     def get_related_context(self, entity_name: str) -> list:
         """Returns 1-hop relationships for an entity to build graph context."""
         if not self.driver:

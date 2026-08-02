@@ -1,10 +1,24 @@
 import os
 import uuid
 from typing import List, Dict, Any, Optional
+
 import chromadb
 from chromadb.config import Settings
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 _client = None
+
+# Retry decorator for ChromaDB network operations
+_chroma_retry = retry(
+    stop=stop_after_attempt(int(os.getenv("DB_MAX_RETRIES", "3"))),
+    wait=wait_exponential(multiplier=1, min=0.5, max=5.0),
+    retry=retry_if_exception_type((ConnectionError, OSError, TimeoutError)),
+    reraise=True,
+)
 
 
 def get_client() -> chromadb.ClientAPI:
@@ -13,7 +27,6 @@ def get_client() -> chromadb.ClientAPI:
         return _client
 
     chroma_host = os.getenv("CHROMA_HOST", "chroma")
-    # Default 8001 to avoid colliding with the FastAPI backend on 8000
     chroma_port = int(os.getenv("CHROMA_PORT", "8001"))
     chroma_token = os.getenv("CHROMA_AUTH_TOKEN")
 
@@ -39,10 +52,12 @@ def get_client() -> chromadb.ClientAPI:
     return _client
 
 
+@_chroma_retry
 def get_collection():
     return get_client().get_or_create_collection("rag_collection")
 
 
+@_chroma_retry
 async def add_documents(
     docs: List[str],
     embeddings: List[List[float]],
@@ -82,6 +97,7 @@ async def add_documents(
     )
 
 
+@_chroma_retry
 async def query(
     embedding: List[float],
     n_results: int = 5,
@@ -114,9 +130,12 @@ async def query(
     return output
 
 
+@_chroma_retry
 async def delete_document(doc_id: str):
     get_collection().delete(where={"doc_id": doc_id})
 
+
+@_chroma_retry
 async def get_document_parents(doc_id: str) -> set:
     collection = get_collection()
     results = collection.get(where={"doc_id": doc_id}, include=["metadatas"])
@@ -127,6 +146,7 @@ async def get_document_parents(doc_id: str) -> set:
     return parents
 
 
+@_chroma_retry
 async def list_documents() -> List[Dict]:
     collection = get_collection()
     results = collection.get(include=["metadatas"])
@@ -148,6 +168,7 @@ async def list_documents() -> List[Dict]:
     return list(docs_map.values())
 
 
+@_chroma_retry
 def get_stats() -> Dict[str, int]:
     collection = get_collection()
     return {"total_chunks": collection.count()}
