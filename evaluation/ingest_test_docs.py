@@ -1,32 +1,90 @@
-import asyncio
+"""
+Ingests the generated test documents into the RAG pipeline for evaluation.
+This script runs the chunking + embedding pipeline locally (no server needed).
+"""
+
 import os
 import sys
+import asyncio
 
-# Ensure backend directory is in the python path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "backend"))
+# Add backend to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-from app.rag.ingestion import IngestionPipeline
+# Force in-memory cache for testing
+os.environ.setdefault("CACHE_BACKEND", "memory")
+os.environ.setdefault("CHROMA_PERSIST_DIR", os.path.join(os.path.dirname(__file__), "eval_chroma_data"))
+os.environ.setdefault("BM25_DATA_DIR", os.path.join(os.path.dirname(__file__), "eval_bm25_data"))
+os.environ.setdefault("OTEL_ENABLED", "false")
 
-async def main():
-    print("Ingesting sample documents into local stores...")
-    pipeline = IngestionPipeline()
-    
-    docs = [
-        "sample_docs/sample_1_acme_handbook.pdf",
-        "sample_docs/sample_2_quantum_specs.pdf"
-    ]
-    
-    for doc in docs:
-        if os.path.exists(doc):
-            try:
-                filename = os.path.basename(doc)
-                content_type = "application/pdf" if doc.endswith(".pdf") else "application/msword"
-                await pipeline.process_file(doc, filename, content_type, job_id="test_job")
-                print(f"Successfully ingested {doc}")
-            except Exception as e:
-                print(f"Failed to ingest {doc}: {e}")
-        else:
-            print(f"File not found: {doc}")
+
+async def ingest_documents():
+    from app.rag.loaders.pdf_loader import load_pdf
+    from app.rag.chunkers.recursive_chunker import chunk_documents
+    from app.rag.embeddings.local_embedder import embed_documents
+    from app.rag.vectorstore.chroma_store import add_documents
+    from app.rag.vectorstore.bm25_store import get_bm25_store
+    from app.core.cache import set_cache
+
+    docs_dir = os.path.join(os.path.dirname(__file__), "test_documents")
+
+    if not os.path.exists(docs_dir):
+        print("ERROR: Test documents not found. Run generate_test_docs.py first.")
+        sys.exit(1)
+
+    pdf_files = [f for f in os.listdir(docs_dir) if f.endswith(".pdf")]
+    if not pdf_files:
+        print("ERROR: No PDF files found in test_documents/")
+        sys.exit(1)
+
+    print(f"Found {len(pdf_files)} test documents to ingest.")
+
+    all_chunks = []
+    all_parent_stores = {}
+
+    for filename in pdf_files:
+        filepath = os.path.join(docs_dir, filename)
+        print(f"  Loading: {filename}")
+
+        docs = await load_pdf(filepath)
+        for doc in docs:
+            doc.metadata["filename"] = filename
+
+        chunks, parent_store = chunk_documents(docs)
+        all_chunks.extend(chunks)
+        all_parent_stores.update(parent_store)
+        print(f"    -> {len(chunks)} chunks, {len(parent_store)} parent segments")
+
+    # Persist parent chunks to cache
+    for parent_id, parent_text in all_parent_stores.items():
+        await set_cache(f"parent:{parent_id}", parent_text, ttl=None)
+
+    # Embed all chunks
+    texts = [c.page_content for c in all_chunks]
+    metadatas = [c.metadata for c in all_chunks]
+
+    print(f"\n  Embedding {len(texts)} chunks...")
+    embeddings = await embed_documents(texts)
+
+    if not embeddings:
+        print("ERROR: Embedding generation failed.")
+        sys.exit(1)
+
+    # Store in ChromaDB
+    print("  Storing in ChromaDB...")
+    await add_documents(texts, embeddings, metadatas)
+
+    # Store in BM25
+    print("  Storing in BM25 index...")
+    bm25_store = get_bm25_store()
+    bm25_docs = []
+    for i, text in enumerate(texts):
+        doc_id = metadatas[i].get("hash", f"eval_{i}")
+        source = metadatas[i].get("filename", "unknown")
+        bm25_docs.append({"id": doc_id, "text": text, "doc_id": source})
+    bm25_store.add_documents(bm25_docs)
+
+    print(f"\nIngestion complete: {len(texts)} chunks indexed.")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(ingest_documents())

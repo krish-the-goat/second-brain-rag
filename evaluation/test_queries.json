@@ -1,14 +1,156 @@
 [
   {
-    "type": "factual",
-    "question": "What is the core mission of Acme Corp?",
-    "ground_truth_answer": "To build the world's most robust anvils.",
-    "expected_source_filename": "sample_1_acme_handbook.pdf"
+    "id": "q01",
+    "question": "What is machine learning?",
+    "expected_keywords": ["subset", "artificial intelligence", "data", "learn"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "factual"
   },
   {
-    "type": "factual",
-    "question": "What is Project Quantum replacing?",
-    "ground_truth_answer": "It is replacing the legacy Memcached cluster with a globally distributed Redis enterprise deployment.",
-    "expected_source_filename": "sample_2_quantum_specs.pdf"
+    "id": "q02",
+    "question": "How does a neural network work?",
+    "expected_keywords": ["layers", "neurons", "weights", "activation"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q03",
+    "question": "What is the difference between supervised and unsupervised learning?",
+    "expected_keywords": ["labeled", "unlabeled", "classification", "clustering"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "comparison"
+  },
+  {
+    "id": "q04",
+    "question": "What are Python's main data structures?",
+    "expected_keywords": ["list", "dictionary", "tuple", "set"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q05",
+    "question": "How do decorators work in Python?",
+    "expected_keywords": ["function", "wrapper", "@", "modify"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q06",
+    "question": "What is the Global Interpreter Lock (GIL)?",
+    "expected_keywords": ["thread", "CPython", "one", "execution"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q07",
+    "question": "Explain the CAP theorem in distributed systems",
+    "expected_keywords": ["consistency", "availability", "partition tolerance"],
+    "expected_source": "distributed_systems_overview.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q08",
+    "question": "What is eventual consistency?",
+    "expected_keywords": ["replicas", "converge", "time", "update"],
+    "expected_source": "distributed_systems_overview.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q09",
+    "question": "How does consensus work in Raft?",
+    "expected_keywords": ["leader", "election", "log", "follower"],
+    "expected_source": "distributed_systems_overview.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q10",
+    "question": "What is transfer learning in deep learning?",
+    "expected_keywords": ["pretrained", "fine-tune", "model", "task"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q11",
+    "question": "Compare REST and GraphQL APIs",
+    "expected_keywords": ["endpoint", "query", "over-fetching", "schema"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "comparison"
+  },
+  {
+    "id": "q12",
+    "question": "What is gradient descent?",
+    "expected_keywords": ["optimization", "loss", "minimum", "learning rate"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q13",
+    "question": "How does garbage collection work in Python?",
+    "expected_keywords": ["reference counting", "cycle", "memory", "objects"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q14",
+    "question": "What are microservices?",
+    "expected_keywords": ["independent", "services", "deploy", "communicate"],
+    "expected_source": "distributed_systems_overview.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q15",
+    "question": "What is overfitting in machine learning?",
+    "expected_keywords": ["training", "generalize", "complex", "validation"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q16",
+    "question": "How does async/await work in Python?",
+    "expected_keywords": ["coroutine", "event loop", "non-blocking", "await"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q17",
+    "question": "What is a knowledge graph?",
+    "expected_keywords": ["entities", "relationships", "nodes", "edges"],
+    "expected_source": "distributed_systems_overview.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q18",
+    "question": "Explain backpropagation",
+    "expected_keywords": ["gradient", "chain rule", "loss", "backward"],
+    "expected_source": "machine_learning_fundamentals.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q19",
+    "question": "What is Docker and containerization?",
+    "expected_keywords": ["container", "image", "isolated", "lightweight"],
+    "expected_source": "distributed_systems_overview.pdf",
+    "category": "factual"
+  },
+  {
+    "id": "q20",
+    "question": "How does Python's asyncio event loop handle concurrency?",
+    "expected_keywords": ["single thread", "tasks", "I/O", "schedule"],
+    "expected_source": "python_programming_guide.pdf",
+    "category": "explanation"
+  },
+  {
+    "id": "q21",
+    "question": "What should I eat for dinner?",
+    "expected_keywords": [],
+    "expected_source": null,
+    "category": "out_of_scope"
+  },
+  {
+    "id": "q22",
+    "question": "Tell me a joke",
+    "expected_keywords": [],
+    "expected_source": null,
+    "category": "out_of_scope"
   }
 ]
