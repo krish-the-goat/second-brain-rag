@@ -53,8 +53,9 @@ backend/chroma_data_test/
 
 # Evaluation Reports
 evaluation/reports/
-evaluation/test_queries.json
-evaluation/benchmark_results.json
+evaluation/test_documents/
+evaluation/eval_chroma_data/
+evaluation/eval_bm25_data/
 
 # IDE
 .idea/

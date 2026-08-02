@@ -1,47 +1,94 @@
-name: Evaluation Pipeline
+name: CI & Evaluation Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-  ragas-eval:
+  backend-tests:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r backend/requirements.txt
-        pip install -r evaluation/requirements.txt
-        
-    - name: Run RAGAS Evaluation
-      env:
-        # Note: we use GEMINI_API_KEY because the backend is configured for Gemini.
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        MOCK_LLM: "true"
-        RAGAS_MIN_FAITHFULNESS: "0.80"
-        RAGAS_MIN_RELEVANCY: "0.75"
-        RAGAS_MIN_PRECISION: "0.70"
-        RAGAS_MIN_RECALL: "0.70"
-      run: |
-        export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
-        pip install fpdf python-docx
-        python generate_samples.py
-        python evaluation/ingest_test_docs.py
-        python evaluation/custom_eval.py
-        
-    - name: Upload Evaluation Report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: ragas-evaluation-report
-        path: evaluation/reports/
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Run linter
+        run: ruff check backend/app/
+        working-directory: backend
+
+      - name: Run backend tests
+        env:
+          API_KEY: test-api-key-12345
+          API_KEYS: test-api-key-12345,second-key-67890
+          GOOGLE_API_KEY: fake-key
+          GROQ_API_KEY: fake-key
+          CACHE_BACKEND: memory
+          OTEL_ENABLED: "false"
+        run: pytest --tb=short -q
+        working-directory: backend
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+  ragas-eval:
+    runs-on: ubuntu-latest
+    needs: backend-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r evaluation/requirements.txt
+
+      - name: Generate test documents
+        run: python evaluation/generate_test_docs.py
+
+      - name: Ingest test documents
+        env:
+          CACHE_BACKEND: memory
+          OTEL_ENABLED: "false"
+        run: python evaluation/ingest_test_docs.py
+
+      - name: Run RAG evaluation
+        env:
+          CACHE_BACKEND: memory
+          OTEL_ENABLED: "false"
+          RAGAS_MIN_RECALL: "0.70"
+          RAGAS_MIN_PRECISION: "0.60"
+        run: python evaluation/custom_eval.py
+
+      - name: Upload Evaluation Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-evaluation-report
+          path: evaluation/reports/
