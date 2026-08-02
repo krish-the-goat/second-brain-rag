@@ -1,80 +1,239 @@
-# 🧠 Second Brain RAG
+# Second Brain RAG
 
-Welcome to **Second Brain RAG**! I built this project to solve a very real problem: we all have way too many PDFs, DOCX files, and web bookmarks scattered around, and finding specific information inside them is a nightmare. 
-
-Instead of just building another generic wrapper around an LLM, I engineered a production-grade, highly secure **Retrieval-Augmented Generation (RAG)** system. You can feed it your documents, and it acts as your personal "Second Brain" — answering questions accurately by extracting exactly what you need, with precise citations, and zero hallucinations.
+A production-grade Retrieval-Augmented Generation system that turns your documents into a queryable knowledge base. Upload PDFs, DOCX files, or web pages — then ask questions and get accurate, cited answers powered by hybrid search and a live knowledge graph.
 
 ---
 
-## 🔥 Why This Stands Out
+## Architecture
 
-This isn't just a basic semantic search script. It's packed with heavy engineering to make it fast, reliable, and practically bulletproof:
+```
+┌─────────────┐       ┌──────────────────────────────────────────────────────┐
+│  React UI   │──────▶│  Nginx (reverse proxy, API key injection, SSE)       │
+│  (Vite/TS)  │       └───────────────────────┬──────────────────────────────┘
+└─────────────┘                               │
+                                              ▼
+                               ┌──────────────────────────┐
+                               │   FastAPI Backend         │
+                               │   (Gunicorn + Uvicorn)    │
+                               └─────┬────────┬───────┬───┘
+                                     │        │       │
+                    ┌────────────────┘        │       └────────────────┐
+                    ▼                          ▼                        ▼
+          ┌─────────────────┐     ┌────────────────────┐    ┌──────────────┐
+          │   ChromaDB      │     │   Neo4j            │    │   Redis      │
+          │   (vectors)     │     │   (knowledge graph)│    │   (cache)    │
+          └─────────────────┘     └────────────────────┘    └──────────────┘
+```
 
-*   **Advanced Hybrid RAG Pipeline:** We don't just rely on vectors. This system uses **Dense Search (ChromaDB)** + **Sparse Keyword Search (BM25)**, combined with **Reciprocal Rank Fusion (RRF)**. It then pipes the results through a **Local Cross-Encoder** to rerank and surface the absolute best context.
-*   **GraphRAG Augmentation:** As you upload documents, the system uses LLMs to extract entities and relationships, building a live Knowledge Graph in **Neo4j**. When you ask a question, it traverses this graph to provide multi-hop relational context!
-*   **Multi-Provider LLM Fallback (Zero Downtime):** AI APIs drop constantly. If the primary provider (Gemini 2.5) hits a rate limit (429) or fails, the `LLMManager` instantly hot-swaps the payload format and falls back to **Groq (LLaMa 3.3 70B)** mid-stream without the user ever noticing.
-*   **Military-Grade Security (OWASP Top 10 LLM 2025):** I took security very seriously.
-    *   **Prompt Injection Defense:** User queries are strictly isolated in XML `<USER_QUERY>` tags, with aggressive character escaping (`<` and `>`) to make structural breakouts impossible.
-    *   **DoS & Memory Protection:** Strict limits on file sizes and chunk batching (32 chunks/batch) for local embeddings to prevent Out of Memory (OOM) attacks.
-    *   **SSRF & TOCTOU Protection:** Web scraping explicitly resolves hostnames, drops local/private IPs, and strictly pins the connection to the validated IP using `curl --resolve` to completely mitigate DNS Rebinding attacks.
-    *   **Data Isolation:** Semantic cache keys are securely salted with the API Key, ensuring zero cross-tenant data leakage, while all internal database ports remain locked down to localhost.
-*   **Performance & Reliability Architecture:**
-    *   **Event Loop Liberation:** Synchronous CPU-bound (`sentence-transformers`) and blocking I/O tasks (`neo4j` driver) are offloaded using `asyncio.to_thread`, keeping the FastAPI event loop perfectly non-blocking.
-    *   **Concurrent Graph Extraction:** Employs bounded concurrency (`asyncio.Semaphore`) to extract relationships simultaneously without exhausting Neo4j connection pools.
-    *   **Persistent RAG State:** Chunk-to-parent mapping (`_PARENT_STORE`) is fully persisted in Redis, surviving server restarts seamlessly with built-in garbage collection.
-*   **Premium Chat UI:** A sleek, glassmorphism React interface featuring Server-Sent Events (SSE) for real-time text streaming, complete with clickable document citations.
+**Query Flow:**
+1. User question is embedded locally (all-MiniLM-L6-v2)
+2. Parallel retrieval: Dense search (ChromaDB) + Sparse keyword search (BM25/SQLite FTS5) + Graph context (Neo4j)
+3. Results merged via Reciprocal Rank Fusion, then reranked by a local Cross-Encoder (ms-marco-MiniLM-L-6-v2)
+4. Token-budgeted prompt assembled with security directives
+5. Streamed response from Gemini (primary) or Groq/LLaMa (fallback) via SSE
 
 ---
 
-## 🛠️ Tech Stack
+## Key Features
 
-*   **Frontend:** React (TypeScript), Vite, React Query, Tailwind CSS, Lucide Icons.
-*   **Backend:** Python 3.12, FastAPI (Async), Gunicorn.
-*   **LLMs:** Google Gemini (Primary) & Groq / LLaMa 3 (Fallback).
-*   **Embeddings & Reranking:** Local `SentenceTransformers` (`all-MiniLM-L6-v2` & `ms-marco-MiniLM-L-6-v2`) — totally free and private.
-*   **Databases:** ChromaDB (Vectors), Neo4j (Graph), Redis (Caching & Rate Limiting).
-*   **Infrastructure:** Fully containerized with Docker Compose.
+**Hybrid RAG Pipeline**
+- Dense vector search (ChromaDB) + sparse keyword search (SQLite FTS5/BM25)
+- Reciprocal Rank Fusion merges both result sets
+- Local Cross-Encoder reranking for precision
+- Parent-child chunking: small chunks for retrieval, full parent context for generation
+
+**GraphRAG**
+- LLM-extracted entities and relationships stored in Neo4j
+- 1-hop graph traversal adds relational context at query time
+
+**Multi-Provider LLM with Automatic Fallback**
+- Primary: Google Gemini 2.5 Flash
+- Fallback: Groq (LLaMa 3.3 70B)
+- Automatic switch on 429 rate limits with cooldown-based recovery
+
+**Security**
+- Prompt injection defense: UUID-tagged context blocks, HTML escaping, security directives
+- SSRF protection: DNS resolution → private IP blocking → curl `--resolve` pinning
+- API key never in frontend bundle (Nginx injects server-side)
+- Multi-key authentication with constant-time comparison
+- Strict file size limits and document page caps
+
+**Observability**
+- OpenTelemetry tracing (FastAPI auto-instrumentation + custom pipeline spans)
+- Structured JSON logging via structlog with API key redaction
+- Metrics tracking: queries, tokens, cost, response times
+
+**Resilience**
+- Retry with exponential backoff on Neo4j and ChromaDB transient failures
+- Semantic caching (Redis) with per-tenant key isolation
+- Graceful degradation: graph/reranker failures don't crash retrieval
 
 ---
 
-## 🚀 Getting Started
+## Tech Stack
 
-### 1. Clone the repository
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite, TanStack React Query, Lucide Icons |
+| Backend | Python 3.11, FastAPI, Gunicorn, async throughout |
+| LLMs | Google Gemini (primary), Groq/LLaMa 3.3 (fallback) |
+| Embeddings | Local SentenceTransformers (all-MiniLM-L6-v2) |
+| Reranking | Local CrossEncoder (ms-marco-MiniLM-L-6-v2) |
+| Vector Store | ChromaDB |
+| Graph DB | Neo4j 5 |
+| Cache | Redis (with in-memory fallback) |
+| Sparse Search | SQLite FTS5 |
+| Observability | OpenTelemetry, structlog |
+| Infrastructure | Docker Compose, Nginx |
+| CI | GitHub Actions (lint + tests + RAG evaluation) |
+
+---
+
+## Getting Started
+
+### Prerequisites
+- Docker and Docker Compose
+- A Google AI API key ([get one here](https://aistudio.google.com/app/apikey))
+- (Optional) A Groq API key for fallback
+
+### 1. Clone and configure
+
 ```bash
 git clone https://github.com/krish-the-goat/second-brain-rag.git
 cd second-brain-rag
-```
-
-### 2. Environment Variables
-Copy `.env.example` to `.env` and fill in your keys:
-```bash
 cp .env.example .env
 ```
-Make sure to add your Google API key, Groq API key, and choose strong passwords for the databases.
 
-### 3. Spin it up (Docker)
-The absolute easiest way to run the entire stack is via Docker Compose:
+Edit `.env` with your API keys and strong passwords for databases.
+
+### 2. Run with Docker Compose
+
 ```bash
 docker-compose up -d --build
 ```
-Once the containers are running, open your browser and go to `http://localhost:5173`. Boom, your Second Brain is ready!
+
+The UI will be available at `http://localhost:5173` (dev) or `http://localhost:80` (production compose).
+
+### 3. Upload documents
+
+Use the sidebar to upload PDFs/DOCX files or paste a web URL. Documents are chunked, embedded, and indexed automatically.
+
+### 4. Ask questions
+
+Type a question in the chat. The system retrieves relevant context, augments it with graph relationships, and streams the answer with source citations.
 
 ---
 
-## 🧠 How the RAG Pipeline Actually Works
+## Development
 
-If you're curious about what happens when you type a question:
-1. **Query Intent:** The system takes your question and embeds it locally.
-2. **Retrieval:** It searches ChromaDB (meaning/semantics) and the local BM25 store (exact keyword matches).
-3. **Graph Search:** Simultaneously, it queries Neo4j for any 1-hop relationships connected to the entities in your question.
-4. **Reranking:** The Dense and Sparse results are fused and reranked using a local Cross-Encoder to guarantee the best 5 chunks.
-5. **Prompt Engineering:** The reranked chunks and graph context are carefully pruned and injected into a strict `SECURITY DIRECTIVE` prompt.
-6. **Generation:** The payload is sent to Gemini (or Groq if Gemini fails), and the response is streamed directly back to your React UI via Server-Sent Events.
+### Backend tests
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+### Frontend tests
+
+```bash
+cd frontend
+npm install
+npm test
+```
+
+### Linting
+
+```bash
+cd backend && ruff check app/
+cd frontend && npm run lint
+```
 
 ---
 
-## 🤝 Contributing
+## Configuration
 
-I built this as a robust foundation, but there is always room for improvement! If you want to add RBAC (Role-Based Access Control) for multiple users, or implement multi-modal document parsing, feel free to open a PR or an issue. 
+All configuration is via environment variables. See [`.env.example`](.env.example) for the full list with descriptions.
 
-*Happy Hacking!* 🚀
+Key tuning parameters:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHUNK_SIZE` | 2000 | Parent chunk size (chars) |
+| `CHUNK_OVERLAP` | 200 | Overlap between parent chunks |
+| `RERANK_THRESHOLD` | -5.0 | Cross-encoder score cutoff |
+| `MAX_CONTEXT_TOKENS` | 4000 | Token budget for LLM context |
+| `EMBEDDING_MODEL` | all-MiniLM-L6-v2 | SentenceTransformer model |
+| `RERANKER_MODEL` | cross-encoder/ms-marco-MiniLM-L-6-v2 | Reranker model |
+| `GEMINI_MODEL` | gemini-2.5-flash | Primary LLM |
+| `GROQ_MODEL` | llama-3.3-70b-versatile | Fallback LLM |
+
+---
+
+## Project Structure
+
+```
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/routes/        # FastAPI route handlers
+│   │   ├── core/              # Auth, cache, logging, telemetry, resilience
+│   │   ├── rag/
+│   │   │   ├── chunkers/      # Parent-child recursive chunking
+│   │   │   ├── embeddings/    # Local SentenceTransformer embedder
+│   │   │   ├── graph/         # Neo4j manager, graph extraction & retrieval
+│   │   │   ├── loaders/       # PDF, DOCX, Web (SSRF-safe) loaders
+│   │   │   ├── retrievers/    # Hybrid search with RRF + cross-encoder
+│   │   │   └── vectorstore/   # ChromaDB + BM25 (SQLite FTS5) stores
+│   │   │   ├── context_engineering.py  # Token-budgeted prompt builder
+│   │   │   ├── ingestion.py   # Document processing pipeline
+│   │   │   └── pipeline.py    # Main RAG orchestrator
+│   │   └── main.py            # FastAPI app entry point
+│   ├── tests/                 # pytest suite (~76 tests)
+│   ├── requirements.txt       # Pinned production deps
+│   └── requirements-dev.txt   # Dev/test deps
+├── frontend/
+│   ├── src/
+│   │   ├── components/        # React components + tests
+│   │   ├── services/          # Axios API client
+│   │   └── App.tsx            # Main layout
+│   └── package.json           # Pinned deps
+├── evaluation/                # RAG quality evaluation pipeline
+│   ├── test_queries.json      # 22 test queries
+│   ├── generate_test_docs.py  # Synthetic document generator
+│   ├── ingest_test_docs.py    # Local ingestion script
+│   └── custom_eval.py         # Retrieval quality metrics
+├── docker-compose.yml         # Dev stack
+├── docker-compose.prod.yml    # Production stack with healthchecks
+└── .github/workflows/ci.yml   # CI: lint + test + eval
+```
+
+---
+
+## Limitations & Future Work
+
+- **Single-node design**: The SQLite-based BM25 store requires single-worker Gunicorn. For horizontal scaling, replace with PostgreSQL FTS or Elasticsearch.
+- **Single-tenant**: Multi-key auth provides basic client separation but not full RBAC or user-scoped document isolation.
+- **No document versioning**: Re-uploading a document creates new chunks without removing old ones (delete first).
+- **Evaluation is retrieval-only**: The eval pipeline tests context quality but not end-to-end answer quality (would need LLM-as-Judge with API costs).
+
+Potential improvements:
+- Role-based access control with JWT
+- Multi-modal document parsing (images, tables as structured data)
+- Streaming graph updates with change-data-capture
+- PostgreSQL replacement for BM25 to enable multi-worker scaling
+
+---
+
+## Contributing
+
+PRs welcome. Please ensure:
+1. `ruff check` passes with no errors
+2. All existing tests pass (`pytest` / `npm test`)
+3. New features include corresponding tests
+
+---
+
+## License
+
+MIT
