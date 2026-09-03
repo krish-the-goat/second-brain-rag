@@ -40,8 +40,9 @@ describe('Citations', () => {
     render(<Citations citations={mockCitations} />);
     fireEvent.click(screen.getByText('Sources (2)'));
 
-    expect(screen.getByText('92% match')).toBeInTheDocument();
-    expect(screen.getByText('65% match')).toBeInTheDocument();
+    // Sigmoid of 0.92 is ~0.715 -> 72% match; sigmoid of 0.65 is ~0.657 -> 66% match
+    expect(screen.getByText('72% match')).toBeInTheDocument();
+    expect(screen.getByText('66% match')).toBeInTheDocument();
   });
 
   it('shows page number when available', () => {
@@ -49,6 +50,19 @@ describe('Citations', () => {
     fireEvent.click(screen.getByText('Sources (2)'));
 
     expect(screen.getByText('p. 3')).toBeInTheDocument();
+  });
+
+  it('handles citations without page number', () => {
+    const citationsWithoutPage = [
+      { filename: 'doc.txt', excerpt: 'Snippet text', score: 1.5 },
+    ];
+    render(<Citations citations={citationsWithoutPage} />);
+    fireEvent.click(screen.getByText('Sources (1)'));
+
+    expect(screen.getByText('doc.txt')).toBeInTheDocument();
+    expect(screen.queryByText(/p\./)).not.toBeInTheDocument();
+    // Sigmoid of 1.5 is ~0.8176 -> 82% match
+    expect(screen.getByText('82% match')).toBeInTheDocument();
   });
 
   it('shows excerpt text', () => {

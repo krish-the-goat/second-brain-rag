@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, FileText, LayoutTemplate } from 'lucide-react';
 
-interface Citation {
+export interface Citation {
   filename: string;
-  page_number: string | number;
   excerpt: string;
   score: number;
+  page_number?: string | number | null;
 }
 
 interface CitationsProps {
   citations: Citation[];
+}
+
+function sigmoid(logit: number): number {
+  return 1 / (1 + Math.exp(-logit));
 }
 
 export default function Citations({ citations }: CitationsProps) {
@@ -30,14 +34,14 @@ export default function Citations({ citations }: CitationsProps) {
       {expanded && (
         <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.5rem' }}>
           {citations.map((cite, idx) => {
-            const pct = Math.round(cite.score * 100);
+            const pct = Math.round(sigmoid(cite.score) * 100);
             return (
               <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '0.75rem', fontSize: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', color: 'var(--accent-secondary)', fontWeight: 500 }}>
                     <FileText size={14} style={{ marginRight: '6px' }} />
                     <span>{cite.filename}</span>
-                    {cite.page_number && (
+                    {cite.page_number != null && (
                       <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginLeft: '0.5rem', display: 'flex', alignItems: 'center' }}>
                         <LayoutTemplate size={12} style={{ marginRight: '4px' }} /> p. {cite.page_number}
                       </span>
