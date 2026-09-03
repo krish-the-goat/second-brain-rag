@@ -13,6 +13,8 @@ os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
 os.environ.setdefault("CACHE_BACKEND", "memory")
 os.environ.setdefault("CHROMA_HOST", "localhost")
 os.environ.setdefault("CHROMA_PORT", "8001")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-key-for-testing-only-12345")
+os.environ.setdefault("JWT_EXPIRY_MINUTES", "1440")
 
 
 @pytest.fixture

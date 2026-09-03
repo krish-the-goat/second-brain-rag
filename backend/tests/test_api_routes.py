@@ -20,8 +20,13 @@ def client():
 
 @pytest.fixture
 def auth_headers():
-    """Valid API key headers for authenticated endpoints."""
-    return {"X-API-Key": "test-api-key-12345"}
+    """Valid API key and JWT bearer headers for authenticated endpoints."""
+    from app.core.auth import create_access_token
+    token = create_access_token(user_id=1)
+    return {
+        "X-API-Key": "test-api-key-12345",
+        "Authorization": f"Bearer {token}",
+    }
 
 
 class TestHealthRoutes:
@@ -58,6 +63,8 @@ class TestAuthMiddleware:
 
     def test_second_api_key_is_accepted(self, client):
         """Multi-key auth: the second key in API_KEYS should also work."""
+        from app.core.auth import create_access_token
+        token = create_access_token(user_id=1)
         with patch(
             "app.api.routes.documents.get_bm25_store"
         ) as mock_bm25:
@@ -66,7 +73,11 @@ class TestAuthMiddleware:
             mock_bm25.return_value = mock_store
 
             response = client.get(
-                "/documents", headers={"X-API-Key": "second-key-67890"}
+                "/documents",
+                headers={
+                    "X-API-Key": "second-key-67890",
+                    "Authorization": f"Bearer {token}",
+                }
             )
             assert response.status_code == 200
 
@@ -107,6 +118,58 @@ class TestDocumentRoutes:
             assert response.status_code == 200
             assert response.json()["documents"] == []
 
+    def test_documents_requires_jwt(self, client):
+        """API key alone is not enough; JWT bearer token is also required."""
+        response = client.get("/documents", headers={"X-API-Key": "test-api-key-12345"})
+        assert response.status_code == 401
+
+    def test_list_documents_filters_by_owner(self, client, auth_headers):
+        with patch("app.api.routes.documents.get_bm25_store") as mock_bm25:
+            mock_store = MagicMock()
+            mock_store.get_document_metadata.return_value = [
+                {"doc_id": "doc-1", "filename": "doc-1.pdf", "chunk_count": 1, "status": "completed", "created_at": "now", "owner_id": "1"}
+            ]
+            mock_bm25.return_value = mock_store
+
+            response = client.get("/documents", headers=auth_headers)
+            assert response.status_code == 200
+            assert len(response.json()["documents"]) == 1
+            mock_store.get_document_metadata.assert_called_with("1")
+
+    def test_delete_doc_owner_success(self, client, auth_headers):
+        with patch("app.api.routes.documents.get_bm25_store") as mock_bm25, \
+             patch("app.api.routes.documents.get_document_parents", new_callable=AsyncMock, return_value=[]), \
+             patch("app.api.routes.documents.delete_document", new_callable=AsyncMock):
+            mock_store = MagicMock()
+            mock_store.get_document_metadata.return_value = [
+                {"doc_id": "doc-1", "owner_id": "1"}
+            ]
+            mock_bm25.return_value = mock_store
+
+            response = client.delete("/documents/doc-1", headers=auth_headers)
+            assert response.status_code == 200
+            assert response.json()["status"] == "deleted"
+
+    def test_delete_doc_other_owner_forbidden(self, client, auth_headers):
+        with patch("app.api.routes.documents.get_bm25_store") as mock_bm25:
+            mock_store = MagicMock()
+            mock_store.get_document_metadata.return_value = [
+                {"doc_id": "doc-2", "owner_id": "2"}
+            ]
+            mock_bm25.return_value = mock_store
+
+            response = client.delete("/documents/doc-2", headers=auth_headers)
+            assert response.status_code == 403
+
+    def test_delete_doc_not_found_forbidden(self, client, auth_headers):
+        with patch("app.api.routes.documents.get_bm25_store") as mock_bm25:
+            mock_store = MagicMock()
+            mock_store.get_document_metadata.return_value = []
+            mock_bm25.return_value = mock_store
+
+            response = client.delete("/documents/missing-doc", headers=auth_headers)
+            assert response.status_code == 403
+
 
 class TestChatRoutes:
     def test_chat_requires_auth(self, client):
@@ -135,3 +198,38 @@ class TestChatRoutes:
             json={"question": "test", "chat_history": long_history},
         )
         assert response.status_code == 422
+
+
+class TestAuthRoutes:
+    def test_register_and_login_flow(self, client):
+        import uuid
+        test_email = f"user_{uuid.uuid4()}@example.com"
+        # Register user
+        reg_resp = client.post("/auth/register", json={
+            "email": test_email,
+            "password": "strongpassword123"
+        })
+        assert reg_resp.status_code == 200
+        assert "access_token" in reg_resp.json()
+
+        # Duplicate register should fail with 409
+        dup_resp = client.post("/auth/register", json={
+            "email": test_email,
+            "password": "strongpassword123"
+        })
+        assert dup_resp.status_code == 409
+
+        # Login with valid credentials
+        login_resp = client.post("/auth/login", json={
+            "email": test_email,
+            "password": "strongpassword123"
+        })
+        assert login_resp.status_code == 200
+        assert "access_token" in login_resp.json()
+
+        # Login with wrong password
+        bad_login = client.post("/auth/login", json={
+            "email": test_email,
+            "password": "wrongpassword"
+        })
+        assert bad_login.status_code == 401

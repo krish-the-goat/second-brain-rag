@@ -2,7 +2,7 @@ import sqlite3
 import os
 import json
 import threading
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -35,12 +35,21 @@ class BM25Store:
                 filename TEXT,
                 chunk_count INTEGER,
                 status TEXT,
-                created_at TEXT
+                created_at TEXT,
+                owner_id TEXT
             );
         """)
+        # Guarded migration: ensure owner_id column exists on document_metadata
+        cursor = self.conn.execute("PRAGMA table_info(document_metadata);")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "owner_id" not in columns:
+            self.conn.execute("ALTER TABLE document_metadata ADD COLUMN owner_id TEXT;")
+            self.conn.commit()
+
         # Create indexes for fast lookup
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_mapping_chunk_id ON corpus_mapping(chunk_id);")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_mapping_doc_id ON corpus_mapping(doc_id);")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_meta_owner_id ON document_metadata(owner_id);")
         self.conn.commit()
 
         self._lock = threading.Lock()
@@ -129,22 +138,46 @@ class BM25Store:
             self.conn.commit()
         logger.info(f"Deleted chunks from BM25 for doc_id: {doc_id}")
 
-    def update_document_metadata(self, doc_id: str, filename: str, chunk_count: int, status: str, created_at: str):
+    def update_document_metadata(
+        self,
+        doc_id: str,
+        filename: str,
+        chunk_count: int,
+        status: str,
+        created_at: str,
+        owner_id: Optional[str] = None
+    ):
         with self._lock:
             self.conn.execute("""
-                INSERT INTO document_metadata (doc_id, filename, chunk_count, status, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO document_metadata (doc_id, filename, chunk_count, status, created_at, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(doc_id) DO UPDATE SET
                     filename=excluded.filename,
                     chunk_count=excluded.chunk_count,
                     status=excluded.status,
-                    created_at=excluded.created_at
-            """, (doc_id, filename, chunk_count, status, created_at))
+                    created_at=excluded.created_at,
+                    owner_id=COALESCE(excluded.owner_id, document_metadata.owner_id)
+            """, (doc_id, filename, chunk_count, status, created_at, owner_id))
             self.conn.commit()
 
-    def get_document_metadata(self) -> List[Dict]:
+    def get_document_metadata(
+        self,
+        owner_id: Optional[str] = None,
+        doc_id: Optional[str] = None
+    ) -> List[Dict]:
         with self._lock:
-            cursor = self.conn.execute("SELECT doc_id, filename, chunk_count, status, created_at FROM document_metadata")
+            query = "SELECT doc_id, filename, chunk_count, status, created_at, owner_id FROM document_metadata"
+            params = []
+            conditions = []
+            if owner_id is not None:
+                conditions.append("owner_id = ?")
+                params.append(owner_id)
+            if doc_id is not None:
+                conditions.append("doc_id = ?")
+                params.append(doc_id)
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            cursor = self.conn.execute(query, tuple(params))
             results = []
             for row in cursor:
                 results.append({
@@ -152,9 +185,14 @@ class BM25Store:
                     "filename": row[1],
                     "chunk_count": row[2],
                     "status": row[3],
-                    "created_at": row[4]
+                    "created_at": row[4],
+                    "owner_id": row[5]
                 })
             return results
+
+    def get_document(self, doc_id: str) -> Optional[Dict]:
+        docs = self.get_document_metadata(doc_id=doc_id)
+        return docs[0] if docs else None
 
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
         import re

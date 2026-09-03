@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from app.api.routes import documents, chat, health, metrics
+from app.api.routes import documents, chat, health, metrics, auth
 from app.core.exceptions import ProcessingError, UnsupportedFormatError, DocumentTooLargeError, ScrapingError
 from app.core.logging import setup_logging
 from app.core.cache import init_cache, close_cache, increment_metric
@@ -147,6 +147,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     return build_rfc_7807(500, "Internal Server Error", "An unexpected error occurred.", request)
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(metrics.router, dependencies=[Depends(verify_api_key)])
 app.include_router(documents.router, dependencies=[Depends(verify_api_key)])
 app.include_router(chat.router, dependencies=[Depends(verify_api_key)])
