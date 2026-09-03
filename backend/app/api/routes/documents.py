@@ -26,7 +26,6 @@ class URLUploadRequest(BaseModel):
 @limiter.limit("3/minute")
 async def upload_document(
     request: Request,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ):
     max_size = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024
@@ -71,9 +70,8 @@ async def upload_document(
             os.remove(temp_path)
         raise e
 
-    background_tasks.add_task(
-        ingestion_pipeline.process_file, temp_path, safe_filename, file.content_type or "", job_id
-    )
+    from app.worker import process_file_task
+    process_file_task.delay(temp_path, safe_filename, file.content_type or "", job_id)
     return {"job_id": job_id, "status": "processing"}
 
 
@@ -81,11 +79,11 @@ async def upload_document(
 @limiter.limit("2/minute")
 async def upload_url(
     body: URLUploadRequest,
-    background_tasks: BackgroundTasks,
     request: Request,
 ):
     job_id = str(uuid.uuid4())
-    background_tasks.add_task(ingestion_pipeline.process_url, str(body.url), job_id)
+    from app.worker import process_url_task
+    process_url_task.delay(str(body.url), job_id)
     return {"job_id": job_id, "status": "processing"}
 
 

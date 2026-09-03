@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+*data*/
+neo4j_data/
+chroma_data/
+bm25_data/
+redis_data/
+postgres_data/
+*.db
+*.sqlite3

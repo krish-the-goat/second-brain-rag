@@ -11,6 +11,20 @@ services:
       - neo4j
       - redis
       - chroma
+      - postgres
+    volumes:
+      - bm25_data:/app/bm25_data
+
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - neo4j
+      - chroma
+      - postgres
     volumes:
       - bm25_data:/app/bm25_data
 
@@ -55,6 +69,17 @@ services:
     volumes:
       - redis_data:/data
 
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgrespassword}
+      - POSTGRES_DB=${POSTGRES_DB:-second_brain}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 networks:
   default:
     driver: bridge
@@ -64,3 +89,4 @@ volumes:
   chroma_data:
   redis_data:
   bm25_data:
+  postgres_data:

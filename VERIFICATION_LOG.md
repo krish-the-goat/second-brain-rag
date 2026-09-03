@@ -23,3 +23,5 @@
 ✓ Step 4 — Reliability Patches — Refactored `Neo4jManager.__init__` to use lazy connection initialization without calling the blocking `verify_connectivity()` method or sleeping. Verified using a python script that instantiation now takes 0.0003s, eliminating the startup lockup on the main event loop.
 ✓ Step 5 — Frontend Updates — Updated `FileUpload.tsx` to read `sessionStorage` on mount and save the `activeJobId`. Verified code visually.
 ✓ Step 6 — Verification & Testing — Added unit test for tokenizer DoS preventing crash on special tokens. Ran full pytest backend regression suite. All tests passing cleanly!
+
+✓ Step 1 — Phase 1: Event-Driven Ingestion (Celery + Redis) — ran `docker-compose up -d`, verified worker container successfully connects to redis broker and registers `second_brain_worker`.
