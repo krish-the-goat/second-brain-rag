@@ -18,6 +18,18 @@ os.environ.setdefault("JWT_EXPIRY_MINUTES", "1440")
 
 
 @pytest.fixture
+def auth_headers():
+    """Valid API key and JWT bearer headers for authenticated endpoints."""
+    from app.core.auth import create_access_token
+    token = create_access_token(user_id=1)
+    api_key = os.getenv("API_KEY", "test-api-key-12345")
+    return {
+        "X-API-Key": api_key,
+        "Authorization": f"Bearer {token}",
+    }
+
+
+@pytest.fixture
 def sample_documents():
     """Sample langchain Documents for testing chunking and ingestion."""
     from langchain_core.documents import Document

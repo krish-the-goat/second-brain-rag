@@ -1,5 +1,6 @@
 """Tests for API routes (health, documents, chat)."""
 
+import os
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
@@ -23,8 +24,9 @@ def auth_headers():
     """Valid API key and JWT bearer headers for authenticated endpoints."""
     from app.core.auth import create_access_token
     token = create_access_token(user_id=1)
+    api_key = os.getenv("API_KEY", "test-api-key-12345")
     return {
-        "X-API-Key": "test-api-key-12345",
+        "X-API-Key": api_key,
         "Authorization": f"Bearer {token}",
     }
 
@@ -67,7 +69,9 @@ class TestAuthMiddleware:
         token = create_access_token(user_id=1)
         with patch(
             "app.api.routes.documents.get_bm25_store"
-        ) as mock_bm25:
+        ) as mock_bm25, patch(
+            "app.main._valid_keys", {os.getenv("API_KEY", "test-api-key-12345"), "second-key-67890"}
+        ):
             mock_store = MagicMock()
             mock_store.get_document_metadata.return_value = []
             mock_bm25.return_value = mock_store
@@ -120,7 +124,8 @@ class TestDocumentRoutes:
 
     def test_documents_requires_jwt(self, client):
         """API key alone is not enough; JWT bearer token is also required."""
-        response = client.get("/documents", headers={"X-API-Key": "test-api-key-12345"})
+        api_key = os.getenv("API_KEY", "test-api-key-12345")
+        response = client.get("/documents", headers={"X-API-Key": api_key})
         assert response.status_code == 401
 
     def test_list_documents_filters_by_owner(self, client, auth_headers):

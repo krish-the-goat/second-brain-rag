@@ -7,8 +7,8 @@ import json
 def pipeline():
     return RAGPipeline()
 
-def test_make_cache_key(pipeline):
-    os.environ["API_KEY"] = "test-tenant"
+def test_make_cache_key(pipeline, monkeypatch):
+    monkeypatch.setenv("API_KEY", "test-tenant")
     key1 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "hi"}])
     key2 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "hi"}])
     key3 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "bye"}])
@@ -16,7 +16,7 @@ def test_make_cache_key(pipeline):
     assert key1 == key2
     assert key1 != key3
     
-    os.environ["API_KEY"] = "another-tenant"
+    monkeypatch.setenv("API_KEY", "another-tenant")
     key4 = pipeline._make_cache_key("hello world", [{"role": "user", "content": "hi"}])
     assert key1 != key4
 

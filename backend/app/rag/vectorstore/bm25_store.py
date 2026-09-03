@@ -2,8 +2,18 @@ import sqlite3
 import os
 import json
 import threading
-from typing import List, Dict, Optional
+from contextlib import contextmanager
+from typing import List, Dict, Optional, Union
 from app.core.logging import get_logger
+
+try:
+    import psycopg2
+    from psycopg2.extras import execute_batch
+    from psycopg2.pool import ThreadedConnectionPool
+except ImportError:
+    psycopg2 = None
+    execute_batch = None
+    ThreadedConnectionPool = None
 
 logger = get_logger(__name__)
 
@@ -230,10 +240,312 @@ class BM25Store:
             row = cursor.fetchone()
             return row[0] if row else 0
 
-_bm25_store: BM25Store = None
+SQLiteBM25Store = BM25Store
 
-def get_bm25_store() -> BM25Store:
-    global _bm25_store
-    if _bm25_store is None:
-        _bm25_store = BM25Store()
+
+class PostgresBM25Store:
+    """PostgreSQL full-text-search sparse store using tsvector and GIN indexing.
+
+    Supports multi-process concurrency (e.g. multi-worker Gunicorn) without
+    file-locking constraints.
+    """
+
+    def __init__(
+        self,
+        database_url: Optional[str] = None,
+        use_pool: bool = False,
+        minconn: int = 1,
+        maxconn: int = 10,
+    ):
+        if psycopg2 is None:
+            raise ImportError(
+                "psycopg2 is required for PostgresBM25Store. "
+                "Please install psycopg2 or psycopg2-binary."
+            )
+        self.database_url = database_url or os.getenv("DATABASE_URL")
+        if not self.database_url:
+            raise ValueError(
+                "DATABASE_URL is not set. Please provide database_url or set the "
+                "DATABASE_URL environment variable."
+            )
+        self.use_pool = use_pool
+        self._minconn = minconn
+        self._maxconn = maxconn
+        self._pool = None
+        self._pool_lock = threading.Lock()
+        self._pid = os.getpid()
+
+        if self.use_pool and ThreadedConnectionPool is not None:
+            self._pool = ThreadedConnectionPool(self._minconn, self._maxconn, dsn=self.database_url)
+
+        self._init_db()
+
+    @contextmanager
+    def _get_connection(self):
+        """Yield a database connection safe across processes and threads."""
+        if self.use_pool and self._pool is not None:
+            if os.getpid() != self._pid:
+                with self._pool_lock:
+                    if os.getpid() != self._pid:
+                        try:
+                            self._pool.closeall()
+                        except Exception:
+                            pass
+                        self._pool = ThreadedConnectionPool(self._minconn, self._maxconn, dsn=self.database_url)
+                        self._pid = os.getpid()
+            conn = self._pool.getconn()
+            try:
+                yield conn
+            except Exception:
+                if conn and not conn.closed:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                raise
+            finally:
+                if conn and not conn.closed:
+                    self._pool.putconn(conn)
+        else:
+            conn = psycopg2.connect(self.database_url)
+            try:
+                yield conn
+            except Exception:
+                if not conn.closed:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                raise
+            finally:
+                if not conn.closed:
+                    conn.close()
+
+    def _init_db(self):
+        """Idempotently create tables and indexes."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Document metadata table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS document_metadata (
+                        doc_id TEXT PRIMARY KEY,
+                        filename TEXT,
+                        chunk_count INTEGER,
+                        status TEXT,
+                        created_at TEXT,
+                        owner_id TEXT
+                    );
+                """)
+
+                # Guarded check: ensure owner_id column exists
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'document_metadata';
+                """)
+                doc_cols = {row[0] for row in cur.fetchall()}
+                if doc_cols and "owner_id" not in doc_cols:
+                    cur.execute("ALTER TABLE document_metadata ADD COLUMN owner_id TEXT;")
+
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_doc_meta_owner_id ON document_metadata(owner_id);"
+                )
+
+                # 2. Corpus table with generated tsvector column
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS corpus (
+                        chunk_id TEXT PRIMARY KEY,
+                        doc_id TEXT,
+                        text TEXT,
+                        ts tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(text, ''))) STORED
+                    );
+                """)
+
+                # Guarded check: ensure ts column exists if corpus table pre-existed
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'corpus';
+                """)
+                corpus_cols = {row[0] for row in cur.fetchall()}
+                if corpus_cols and "ts" not in corpus_cols:
+                    cur.execute("""
+                        ALTER TABLE corpus ADD COLUMN ts tsvector
+                        GENERATED ALWAYS AS (to_tsvector('english', coalesce(text, ''))) STORED;
+                    """)
+
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_corpus_ts ON corpus USING gin(ts);"
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_corpus_doc_id ON corpus(doc_id);"
+                )
+            conn.commit()
+
+    def add_documents(self, documents: List[Dict[str, str]]):
+        if not documents:
+            return
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                params = [
+                    (str(d["id"]), str(d.get("doc_id", "unknown")), d.get("text", "") or "")
+                    for d in documents
+                ]
+                execute_batch(
+                    cur,
+                    """
+                    INSERT INTO corpus (chunk_id, doc_id, text)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (chunk_id) DO UPDATE SET
+                        doc_id = EXCLUDED.doc_id,
+                        text = EXCLUDED.text;
+                    """,
+                    params,
+                )
+            conn.commit()
+        logger.info(f"Added {len(documents)} documents to BM25 index.")
+
+    def delete_documents_by_doc_id(self, doc_id: str):
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM corpus WHERE doc_id = %s;", (doc_id,))
+                cur.execute("DELETE FROM document_metadata WHERE doc_id = %s;", (doc_id,))
+            conn.commit()
+        logger.info(f"Deleted chunks from BM25 for doc_id: {doc_id}")
+
+    def update_document_metadata(
+        self,
+        doc_id: str,
+        filename: str,
+        chunk_count: int,
+        status: str,
+        created_at: str,
+        owner_id: Optional[str] = None,
+    ):
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO document_metadata (doc_id, filename, chunk_count, status, created_at, owner_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (doc_id) DO UPDATE SET
+                        filename = EXCLUDED.filename,
+                        chunk_count = EXCLUDED.chunk_count,
+                        status = EXCLUDED.status,
+                        created_at = EXCLUDED.created_at,
+                        owner_id = COALESCE(EXCLUDED.owner_id, document_metadata.owner_id);
+                    """,
+                    (doc_id, filename, chunk_count, status, created_at, owner_id),
+                )
+            conn.commit()
+
+    def get_document_metadata(
+        self,
+        owner_id: Optional[str] = None,
+        doc_id: Optional[str] = None,
+    ) -> List[Dict]:
+        query = "SELECT doc_id, filename, chunk_count, status, created_at, owner_id FROM document_metadata"
+        params = []
+        conditions = []
+        if owner_id is not None:
+            conditions.append("owner_id = %s")
+            params.append(owner_id)
+        if doc_id is not None:
+            conditions.append("doc_id = %s")
+            params.append(doc_id)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+                results = []
+                for row in rows:
+                    results.append({
+                        "doc_id": row[0],
+                        "filename": row[1],
+                        "chunk_count": row[2],
+                        "status": row[3],
+                        "created_at": row[4],
+                        "owner_id": row[5],
+                    })
+                return results
+
+    def get_document(self, doc_id: str) -> Optional[Dict]:
+        docs = self.get_document_metadata(doc_id=doc_id)
+        return docs[0] if docs else None
+
+    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        if not query or not query.strip() or top_k <= 0:
+            return []
+
+        sql = """
+            SELECT chunk_id, text, ts_rank_cd(ts, query) AS score
+            FROM corpus, websearch_to_tsquery('english', %s) query
+            WHERE ts @@ query
+            ORDER BY score DESC
+            LIMIT %s;
+        """
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (query.strip(), top_k))
+                    rows = cur.fetchall()
+                    results = []
+                    for row in rows:
+                        score = float(row[2]) if row[2] is not None else 0.0
+                        if score > 0:
+                            results.append({
+                                "id": row[0],
+                                "text": row[1],
+                                "score": score,
+                            })
+                    return results
+        except Exception as e:
+            logger.warning(f"Postgres text search query failed: {e}")
+            return []
+
+    def get_total_docs(self) -> int:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM document_metadata;")
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
+
+    def close(self):
+        """Close connection pool if enabled."""
+        if self._pool is not None:
+            try:
+                self._pool.closeall()
+            except Exception:
+                pass
+
+
+_bm25_store: Optional[Union[BM25Store, PostgresBM25Store]] = None
+_current_backend: Optional[str] = None
+
+
+def get_bm25_store() -> Union[BM25Store, PostgresBM25Store]:
+    """Return the configured sparse store singleton.
+
+    Controlled by SPARSE_BACKEND env var:
+    - 'sqlite' (default): Returns SQLite FTS5 BM25Store.
+    - 'postgres': Returns PostgreSQL PostgresBM25Store.
+    """
+    global _bm25_store, _current_backend
+    backend = os.getenv("SPARSE_BACKEND", "sqlite").lower().strip()
+    if _bm25_store is None or _current_backend != backend:
+        if backend == "postgres":
+            _bm25_store = PostgresBM25Store()
+            _current_backend = "postgres"
+        else:
+            _bm25_store = BM25Store()
+            _current_backend = "sqlite"
     return _bm25_store
+
+
+def reset_bm25_store() -> None:
+    """Reset cached singleton instance (useful for testing or backend switching)."""
+    global _bm25_store, _current_backend
+    _bm25_store = None
+    _current_backend = None
+

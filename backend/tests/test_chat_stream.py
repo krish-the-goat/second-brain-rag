@@ -7,7 +7,7 @@ from app.main import app
 client = TestClient(app)
 
 @patch("app.api.routes.chat.pipeline")
-def test_chat_stream_endpoint(mock_pipeline):
+def test_chat_stream_endpoint(mock_pipeline, auth_headers):
     # Mock the async generator for SSE
     async def mock_ask_stream(question, history):
         yield f"data: {json.dumps({'text': 'Hello'})}\n\n"
@@ -19,7 +19,7 @@ def test_chat_stream_endpoint(mock_pipeline):
     response = client.post(
         "/chat/stream",
         json={"question": "What is life?", "chat_history": []},
-        headers={"X-API-Key": "test-api-key-12345"}
+        headers=auth_headers
     )
 
     assert response.status_code == 200
