@@ -1,12 +1,12 @@
 import os
 import asyncio
 import uuid
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import structlog
 from sentence_transformers import CrossEncoder
 
-from app.rag.vectorstore.chroma_store import query as chroma_query
+from app.rag.vectorstore.chroma_store import query as chroma_query, get_chunk_metadatas
 from app.rag.embeddings.local_embedder import embed_documents
 from app.rag.vectorstore.bm25_store import get_bm25_store
 from app.core.cache import get_cache
@@ -55,22 +55,28 @@ def reciprocal_rank_fusion(
     return [doc_map[doc_id] for doc_id, _ in sorted_docs]
 
 
-async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
+async def hybrid_search(
+    query: str, top_k: int = 5, owner_id: Optional[str] = None
+) -> List[Dict]:
     """
     Full hybrid retrieval pipeline:
-    1. Dense search (ChromaDB embeddings)
+    1. Dense search (ChromaDB embeddings with optional owner_id filter)
     2. Sparse search (BM25 keyword matching)
     3. Reciprocal Rank Fusion
-    4. Cross-Encoder reranking
-    5. Parent content hydration from cache
+    4. Metadata hydration & per-user document isolation filter (via Chroma metadata)
+    5. Cross-Encoder reranking
+    6. Parent content and metadata hydration from cache and Chroma
     """
     fetch_k = top_k * RETRIEVAL_MULTIPLIER
 
-    # 1. Dense search (ChromaDB)
+    # 1. Dense search (ChromaDB) - scoped to owner_id if provided
     dense_results: List[Dict] = []
     embeddings = await embed_documents([query])
     if embeddings:
-        dense_results = await chroma_query(embeddings[0], n_results=fetch_k, score_threshold=0.0)
+        filters = {"owner_id": str(owner_id)} if owner_id else None
+        dense_results = await chroma_query(
+            embeddings[0], n_results=fetch_k, score_threshold=0.0, filters=filters
+        )
 
     # 2. Sparse search (BM25)
     bm25_store = get_bm25_store()
@@ -79,7 +85,35 @@ async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
     # 3. RRF Fusion
     fused_results = reciprocal_rank_fusion(dense_results, sparse_results)
 
+    # Hydrate metadata from Chroma for chunks missing metadata (e.g. from BM25 sparse search)
+    missing_ids = [doc["id"] for doc in fused_results if doc.get("id") and not doc.get("metadata")]
+    if missing_ids:
+        meta_map = await get_chunk_metadatas(missing_ids)
+        for doc in fused_results:
+            if not doc.get("metadata") and doc.get("id") in meta_map:
+                doc["metadata"] = meta_map[doc["id"]]
+
+    # User isolation: restrict fused results to owner_id if specified.
+    # Because BM25/Postgres sparse store search() has no owner filter, the simplest
+    # correct and least invasive approach is to filter the fused results by matching
+    # the chunk's owner_id from Chroma metadata against the target owner_id. Any chunk
+    # that does not belong to this owner (or has missing metadata) is excluded.
+    # This guarantees a user only ever sees their own chunks without modifying
+    # SQLite/Postgres store internals or retrieval fusion/rerank math.
+    if owner_id:
+        target_owner = str(owner_id)
+        fused_results = [
+            doc for doc in fused_results
+            if doc.get("metadata", {}).get("owner_id") == target_owner
+        ]
+
     if not reranker or not fused_results:
+        for doc in fused_results:
+            meta = doc.get("metadata", {})
+            if "filename" in meta:
+                doc["filename"] = meta["filename"]
+            if "page_number" in meta:
+                doc["page_number"] = meta["page_number"]
         return fused_results[:top_k]
 
     # 4. Reranking (Cross-Encoder) — CPU-bound, runs in thread pool
@@ -99,6 +133,8 @@ async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
                     doc["parent_content"] = parent_text
             if "filename" in meta:
                 doc["filename"] = meta["filename"]
+            if "page_number" in meta:
+                doc["page_number"] = meta["page_number"]
 
         reranked_results = sorted(
             fused_results, key=lambda x: x["rerank_score"], reverse=True
@@ -106,4 +142,10 @@ async def hybrid_search(query: str, top_k: int = 5) -> List[Dict]:
         return reranked_results[:top_k]
     except Exception as e:
         logger.error(f"Reranking failed: {e}")
+        for doc in fused_results:
+            meta = doc.get("metadata", {})
+            if "filename" in meta:
+                doc["filename"] = meta["filename"]
+            if "page_number" in meta:
+                doc["page_number"] = meta["page_number"]
         return fused_results[:top_k]

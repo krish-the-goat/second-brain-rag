@@ -82,7 +82,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Request-ID", "Authorization"],
 )
 
 @app.middleware("http")

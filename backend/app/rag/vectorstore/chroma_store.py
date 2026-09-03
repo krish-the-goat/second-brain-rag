@@ -147,6 +147,22 @@ async def get_document_parents(doc_id: str) -> set:
 
 
 @_chroma_retry
+async def get_chunk_metadatas(ids: List[str]) -> Dict[str, Dict]:
+    """Retrieve metadatas for a list of chunk IDs from ChromaDB."""
+    if not ids:
+        return {}
+    try:
+        collection = get_collection()
+        results = collection.get(ids=ids, include=["metadatas"])
+        res_ids = results.get("ids", [])
+        res_metas = results.get("metadatas", [])
+        return {cid: meta for cid, meta in zip(res_ids, res_metas) if meta}
+    except Exception as e:
+        logger.warning(f"Failed to fetch chunk metadatas from Chroma: {e}")
+        return {}
+
+
+@_chroma_retry
 async def list_documents() -> List[Dict]:
     collection = get_collection()
     results = collection.get(include=["metadatas"])

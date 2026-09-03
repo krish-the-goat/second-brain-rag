@@ -42,6 +42,19 @@ class TestHealthRoutes:
         assert response.status_code == 200
         assert "Second Brain RAG" in response.json()["message"]
 
+    def test_cors_preflight_allows_authorization(self, client):
+        response = client.options(
+            "/chat",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization, content-type",
+            },
+        )
+        assert response.status_code == 200
+        allow_headers = response.headers.get("access-control-allow-headers", "").lower()
+        assert "authorization" in allow_headers
+
 
 class TestAuthMiddleware:
     def test_protected_route_without_key(self, client):
@@ -203,6 +216,40 @@ class TestChatRoutes:
             json={"question": "test", "chat_history": long_history},
         )
         assert response.status_code == 422
+
+    def test_chat_requires_jwt(self, client):
+        """API key alone is not enough for chat; JWT bearer token is also required."""
+        api_key = os.getenv("API_KEY", "test-api-key-12345")
+        response = client.post(
+            "/chat",
+            headers={"X-API-Key": api_key},
+            json={"question": "What is AI?"},
+        )
+        assert response.status_code == 401
+
+    def test_chat_stream_requires_jwt(self, client):
+        """API key alone is not enough for chat stream; JWT bearer token is also required."""
+        api_key = os.getenv("API_KEY", "test-api-key-12345")
+        response = client.post(
+            "/chat/stream",
+            headers={"X-API-Key": api_key},
+            json={"question": "Hello"},
+        )
+        assert response.status_code == 401
+
+    def test_chat_passes_owner_id(self, client, auth_headers):
+        with patch("app.api.routes.chat.pipeline") as mock_pipeline:
+            mock_pipeline.ask = AsyncMock(return_value={"answer": "42", "citations": []})
+            response = client.post(
+                "/chat",
+                headers=auth_headers,
+                json={"question": "What is life?"},
+            )
+            assert response.status_code == 200
+            assert response.json()["answer"] == "42"
+            mock_pipeline.ask.assert_called_once_with(
+                "What is life?", [], owner_id="1"
+            )
 
 
 class TestAuthRoutes:

@@ -126,3 +126,105 @@ class TestHybridSearch:
 
             results = await hybrid_search("test query", top_k=3)
             assert len(results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_with_owner_id(self):
+        """hybrid_search with owner_id should filter Chroma by owner_id and exclude sparse docs of other owners."""
+        owner = "user-42"
+        dense_results = [
+            {
+                "id": "doc-dense-1",
+                "text": "Dense chunk for user 42",
+                "metadata": {"filename": "owned.pdf", "page_number": 3, "owner_id": owner},
+                "score": 0.9,
+            }
+        ]
+        bm25_results = [
+            {"id": "doc-sparse-owned", "text": "Sparse chunk owned by 42", "score": 3.0},
+            {"id": "doc-sparse-other", "text": "Sparse chunk of user 99", "score": 4.0},
+        ]
+        chunk_metas = {
+            "doc-sparse-owned": {"filename": "sparse.pdf", "page_number": 7, "owner_id": owner},
+            "doc-sparse-other": {"filename": "secret.pdf", "page_number": 1, "owner_id": "user-99"},
+        }
+
+        mock_chroma_query = AsyncMock(return_value=dense_results)
+        mock_get_chunk_metas = AsyncMock(return_value=chunk_metas)
+
+        with patch(
+            "app.rag.retrievers.hybrid_retriever.embed_documents",
+            new_callable=AsyncMock,
+            return_value=[[0.1] * 384],
+        ), patch(
+            "app.rag.retrievers.hybrid_retriever.chroma_query",
+            mock_chroma_query,
+        ), patch(
+            "app.rag.retrievers.hybrid_retriever.get_chunk_metadatas",
+            mock_get_chunk_metas,
+        ), patch(
+            "app.rag.retrievers.hybrid_retriever.get_bm25_store"
+        ) as mock_bm25_store, patch(
+            "app.rag.retrievers.hybrid_retriever.reranker", None
+        ):
+            mock_store = MagicMock()
+            mock_store.search.return_value = bm25_results
+            mock_bm25_store.return_value = mock_store
+
+            from app.rag.retrievers.hybrid_retriever import hybrid_search
+
+            results = await hybrid_search("query text", top_k=5, owner_id=owner)
+
+            # Chroma query must have received owner_id filter
+            mock_chroma_query.assert_called_once()
+            _, kwargs = mock_chroma_query.call_args
+            assert kwargs.get("filters") == {"owner_id": owner}
+
+            # Only user-42 documents should be in results
+            result_ids = [r["id"] for r in results]
+            assert "doc-dense-1" in result_ids
+            assert "doc-sparse-owned" in result_ids
+            assert "doc-sparse-other" not in result_ids
+
+            # Verify page_number is preserved
+            for r in results:
+                assert r["metadata"]["owner_id"] == owner
+                assert r["page_number"] in (3, 7)
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_preserves_page_number_with_reranker(self):
+        """Page number and metadata should survive CrossEncoder reranking."""
+        dense_results = [
+            {
+                "id": "doc-1",
+                "text": "Neural networks doc",
+                "metadata": {"filename": "ai.pdf", "page_number": 5, "owner_id": "1"},
+                "score": 0.88,
+            }
+        ]
+        mock_reranker = MagicMock()
+        mock_reranker.predict.return_value = [0.99]
+
+        with patch(
+            "app.rag.retrievers.hybrid_retriever.embed_documents",
+            new_callable=AsyncMock,
+            return_value=[[0.1] * 384],
+        ), patch(
+            "app.rag.retrievers.hybrid_retriever.chroma_query",
+            new_callable=AsyncMock,
+            return_value=dense_results,
+        ), patch(
+            "app.rag.retrievers.hybrid_retriever.get_bm25_store"
+        ) as mock_bm25_store, patch(
+            "app.rag.retrievers.hybrid_retriever.reranker", mock_reranker
+        ):
+            mock_store = MagicMock()
+            mock_store.search.return_value = []
+            mock_bm25_store.return_value = mock_store
+
+            from app.rag.retrievers.hybrid_retriever import hybrid_search
+
+            results = await hybrid_search("neural", top_k=1, owner_id="1")
+            assert len(results) == 1
+            assert results[0]["page_number"] == 5
+            assert results[0]["metadata"]["page_number"] == 5
+            assert results[0]["filename"] == "ai.pdf"

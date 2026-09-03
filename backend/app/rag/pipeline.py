@@ -5,7 +5,7 @@ import httpx
 import asyncio
 import structlog
 import hashlib
-from typing import List, Dict, Any, AsyncGenerator
+from typing import List, Dict, Any, AsyncGenerator, Optional
 
 from app.rag.retrievers.hybrid_retriever import hybrid_search
 from app.rag.graph.graph_retriever import retrieve_graph_context
@@ -22,11 +22,15 @@ class RAGPipeline:
     def __init__(self):
         pass
 
-    async def _retrieve_all_context(self, question: str) -> tuple[List[Dict], str, float]:
+    async def _retrieve_all_context(
+        self, question: str, owner_id: Optional[str] = None
+    ) -> tuple[List[Dict], str, float]:
         tracer = get_tracer("rag.pipeline")
         with tracer.start_as_current_span("retrieve_all_context") as span:
             t0 = time.time()
-            hybrid_task = asyncio.create_task(hybrid_search(question, top_k=5))
+            hybrid_task = asyncio.create_task(
+                hybrid_search(question, top_k=5, owner_id=owner_id)
+            )
             graph_task = asyncio.create_task(retrieve_graph_context(question))
             hybrid_results, graph_context = await asyncio.gather(hybrid_task, graph_task)
 
@@ -101,8 +105,11 @@ class RAGPipeline:
         citations = []
         for r in context_results:
             text = r.get("parent_content", r.get("text", ""))[:200]
+            meta = r.get("metadata") or {}
+            page_number = r.get("page_number") if r.get("page_number") is not None else meta.get("page_number")
             citations.append({
-                "filename": r.get("filename", "unknown"),
+                "filename": r.get("filename", meta.get("filename", "unknown")),
+                "page_number": page_number,
                 "excerpt": text,
                 "score": r.get("rerank_score", r.get("score", 0.0)),
             })
@@ -127,28 +134,43 @@ class RAGPipeline:
         await increment_metric("estimated_cost_usd", cost_usd)
 
     @staticmethod
-    def _make_cache_key(question: str, chat_history: List[Dict], tenant_key: str = "") -> str:
+    def _make_cache_key(
+        question: str,
+        chat_history: List[Dict],
+        tenant_key: str = "",
+        owner_id: Optional[str] = None,
+    ) -> str:
+        key = owner_id or tenant_key
         try:
             history_str = json.dumps(chat_history, default=str)
         except TypeError:
             history_str = str(chat_history)
-        # Salt with the tenant key for cross-tenant cache isolation
-        tenant_salt = tenant_key or os.getenv("API_KEY", "default")
+        # Salt with the owner_id / tenant key for cross-tenant and cross-user cache isolation
+        tenant_salt = key or os.getenv("API_KEY", "default")
         return "query_cache:" + hashlib.sha256(f"{tenant_salt}_{question}_{history_str}".encode()).hexdigest()
 
-    async def ask(self, question: str, chat_history: List[Dict] = None) -> Dict[str, Any]:
+    async def ask(
+        self,
+        question: str,
+        chat_history: List[Dict] = None,
+        owner_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         t_start = time.time()
         if chat_history is None:
             chat_history = []
 
-        cache_key = self._make_cache_key(question, chat_history)
+        cache_key = self._make_cache_key(
+            question, chat_history, tenant_key=owner_id or "", owner_id=owner_id
+        )
         cached_result = await get_cache(cache_key)
         if cached_result:
             logger.info("Semantic Cache Hit", cache_key=cache_key)
             cached_result["timings"]["total_ms"] = (time.time() - t_start) * 1000
             return cached_result
 
-        hybrid_results, graph_context, retrieval_ms = await self._retrieve_all_context(question)
+        hybrid_results, graph_context, retrieval_ms = await self._retrieve_all_context(
+            question, owner_id=owner_id
+        )
         
         t1 = time.time()
         answer = ""
@@ -222,11 +244,18 @@ class RAGPipeline:
 
         return result
 
-    async def ask_stream(self, question: str, chat_history: List[Dict] = None) -> AsyncGenerator[str, None]:
+    async def ask_stream(
+        self,
+        question: str,
+        chat_history: List[Dict] = None,
+        owner_id: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
         if chat_history is None:
             chat_history = []
 
-        cache_key = self._make_cache_key(question, chat_history)
+        cache_key = self._make_cache_key(
+            question, chat_history, tenant_key=owner_id or "", owner_id=owner_id
+        )
         cached_result = await get_cache(cache_key)
         if cached_result:
             logger.info("Semantic Stream Cache Hit", cache_key=cache_key)
@@ -239,7 +268,9 @@ class RAGPipeline:
             yield "data: [DONE]\n\n"
             return
 
-        hybrid_results, graph_context, _ = await self._retrieve_all_context(question)
+        hybrid_results, graph_context, _ = await self._retrieve_all_context(
+            question, owner_id=owner_id
+        )
         
         generated_chars = 0
         full_answer = ""
