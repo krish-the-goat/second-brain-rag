@@ -1,18 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, Trash2 } from 'lucide-react';
-import Citations from './Citations';
-
-interface CitationType {
-  filename: string;
-  page_number: string | number;
-  excerpt: string;
-  score: number;
-}
+import Citations, { Citation } from './Citations';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  citations?: CitationType[];
+  citations?: Citation[];
 }
 
 export default function ChatInterface() {
@@ -42,7 +35,7 @@ export default function ChatInterface() {
     try {
       const baseUrl = import.meta.env.VITE_API_URL || '/api';
 
-      const headers: HeadersInit = {
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
 
@@ -52,6 +45,12 @@ export default function ChatInterface() {
         headers['X-API-Key'] = apiKey;
       }
 
+      // Attach Bearer token for JWT authentication
+      const token = localStorage.getItem('access_token') || localStorage.getItem('token');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${baseUrl}/chat/stream`, {
         method: 'POST',
         headers,
@@ -59,9 +58,16 @@ export default function ChatInterface() {
       });
 
       // Always check HTTP status before trying to read the body as SSE.
-      // A non-ok response (403, 429, 500…) would otherwise silently fail
+      // A non-ok response (401, 403, 429, 500…) would otherwise silently fail
       // inside the parse loop and leave isTyping stuck as true forever.
       if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user_email');
+          window.dispatchEvent(new CustomEvent('auth:logout'));
+        }
+
         let detail = `HTTP ${response.status}`;
         try {
           const errBody = await response.json();
@@ -177,13 +183,7 @@ export default function ChatInterface() {
             <div className="bubble">
               {msg.content}
               {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
-                <div className="citations-box">
-                  {msg.citations.map((c, idx) => (
-                    <span key={idx} className="citation-pill" title={c.excerpt}>
-                      {c.filename}
-                    </span>
-                  ))}
-                </div>
+                <Citations citations={msg.citations} />
               )}
             </div>
           </div>

@@ -1,7 +1,7 @@
 import os
 import asyncio
 import structlog
-from typing import List
+from typing import List, Optional
 from langchain_core.documents import Document
 
 from app.rag.loaders.pdf_loader import load_pdf
@@ -18,7 +18,13 @@ logger = structlog.get_logger(__name__)
 
 class IngestionPipeline:
     @staticmethod
-    async def process_file(file_path: str, filename: str, content_type: str, job_id: str):
+    async def process_file(
+        file_path: str,
+        filename: str,
+        content_type: str,
+        job_id: str,
+        owner_id: Optional[str] = None
+    ):
         await set_cache(f"job:{job_id}", "processing")
         try:
             content_type_lower = content_type.lower()
@@ -33,8 +39,10 @@ class IngestionPipeline:
 
             for doc in docs:
                 doc.metadata["filename"] = filename
+                if owner_id:
+                    doc.metadata["owner_id"] = str(owner_id)
 
-            await IngestionPipeline._process_docs(docs, job_id, filename)
+            await IngestionPipeline._process_docs(docs, job_id, filename, owner_id=owner_id)
 
             await set_cache(f"job:{job_id}", "completed")
 
@@ -52,11 +60,18 @@ class IngestionPipeline:
                 pass
 
     @staticmethod
-    async def process_url(url: str, job_id: str):
+    async def process_url(
+        url: str,
+        job_id: str,
+        owner_id: Optional[str] = None
+    ):
         await set_cache(f"job:{job_id}", "processing")
         try:
             docs = await load_web(url)
-            await IngestionPipeline._process_docs(docs, job_id, url)
+            for doc in docs:
+                if owner_id:
+                    doc.metadata["owner_id"] = str(owner_id)
+            await IngestionPipeline._process_docs(docs, job_id, url, owner_id=owner_id)
             await set_cache(f"job:{job_id}", "completed")
         except (UnsupportedFormatError, ProcessingError, DocumentTooLargeError) as e:
             logger.error(f"Ingestion failed for URL {url}: {e}")
@@ -66,7 +81,12 @@ class IngestionPipeline:
             await set_cache(f"job:{job_id}", "failed: An unexpected internal error occurred.")
 
     @staticmethod
-    async def _process_docs(docs: List[Document], job_id: str, source_id: str):
+    async def _process_docs(
+        docs: List[Document],
+        job_id: str,
+        source_id: str,
+        owner_id: Optional[str] = None
+    ):
         chunks, parent_store = chunk_documents(docs)
         if not chunks:
             return
@@ -76,6 +96,10 @@ class IngestionPipeline:
 
         texts = [c.page_content for c in chunks]
         metadatas = [c.metadata for c in chunks]
+
+        if owner_id:
+            for m in metadatas:
+                m["owner_id"] = str(owner_id)
 
         embeddings = await embed_documents(texts)
         await add_documents(texts, embeddings, metadatas)
@@ -100,7 +124,8 @@ class IngestionPipeline:
             filename=source_id,
             chunk_count=len(texts),
             status="completed",
-            created_at=datetime.datetime.utcnow().isoformat()
+            created_at=datetime.datetime.utcnow().isoformat(),
+            owner_id=owner_id
         )
 
         sem = asyncio.Semaphore(2)

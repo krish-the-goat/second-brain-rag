@@ -13,6 +13,20 @@ os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
 os.environ.setdefault("CACHE_BACKEND", "memory")
 os.environ.setdefault("CHROMA_HOST", "localhost")
 os.environ.setdefault("CHROMA_PORT", "8001")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-key-for-testing-only-12345")
+os.environ.setdefault("JWT_EXPIRY_MINUTES", "1440")
+
+
+@pytest.fixture
+def auth_headers():
+    """Valid API key and JWT bearer headers for authenticated endpoints."""
+    from app.core.auth import create_access_token
+    token = create_access_token(user_id=1)
+    api_key = os.getenv("API_KEY", "test-api-key-12345")
+    return {
+        "X-API-Key": api_key,
+        "Authorization": f"Bearer {token}",
+    }
 
 
 @pytest.fixture

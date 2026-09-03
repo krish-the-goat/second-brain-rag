@@ -46,11 +46,14 @@ class TestIngestionPipeline:
             from app.rag.ingestion import ingestion_pipeline
 
             await ingestion_pipeline.process_file(
-                pdf_path, "test.pdf", "application/pdf", "job-123"
+                pdf_path, "test.pdf", "application/pdf", "job-123", owner_id="user-1"
             )
 
             # Verify job status was set to completed
             mock_cache.assert_any_call("job:job-123", "completed")
+            mock_store.update_document_metadata.assert_called_once()
+            _, kwargs = mock_store.update_document_metadata.call_args
+            assert kwargs.get("owner_id") == "user-1"
 
     @pytest.mark.asyncio
     async def test_process_file_unsupported_format(self, tmp_path):
@@ -65,7 +68,7 @@ class TestIngestionPipeline:
             from app.rag.ingestion import ingestion_pipeline
 
             await ingestion_pipeline.process_file(
-                txt_path, "test.txt", "text/plain", "job-456"
+                txt_path, "test.txt", "text/plain", "job-456", owner_id="user-1"
             )
 
             # Should be marked as failed
@@ -107,9 +110,12 @@ class TestIngestionPipeline:
 
             from app.rag.ingestion import ingestion_pipeline
 
-            await ingestion_pipeline.process_url("https://example.com", "job-789")
+            await ingestion_pipeline.process_url("https://example.com", "job-789", owner_id="user-1")
 
             mock_cache.assert_any_call("job:job-789", "completed")
+            mock_store.update_document_metadata.assert_called_once()
+            _, kwargs = mock_store.update_document_metadata.call_args
+            assert kwargs.get("owner_id") == "user-1"
 
     @pytest.mark.asyncio
     async def test_cleanup_temp_file_on_success(self, tmp_path):
@@ -150,7 +156,7 @@ class TestIngestionPipeline:
             from app.rag.ingestion import ingestion_pipeline
 
             await ingestion_pipeline.process_file(
-                pdf_path, "cleanup_test.pdf", "application/pdf", "job-cleanup"
+                pdf_path, "cleanup_test.pdf", "application/pdf", "job-cleanup", owner_id="user-1"
             )
 
             # File should be deleted

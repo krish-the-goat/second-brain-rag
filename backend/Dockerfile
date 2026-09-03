@@ -11,6 +11,8 @@ RUN if [ "$(uname -m)" = "x86_64" ] || [ "$(uname -m)" = "amd64" ]; then \
 
 COPY . .
 
-# Gunicorn with 1 worker — required because the BM25 SQLite store uses
+# Gunicorn with 1 worker by default — required because the BM25 SQLite store uses
 # file-level locking that is unsafe across multiple processes.
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "1", "--bind", "0.0.0.0:8000", "--timeout", "300"]
+# Multi-worker is safe when using the PostgreSQL sparse backend (SPARSE_BACKEND=postgres),
+# and the worker count can be configured via the GUNICORN_WORKERS environment variable.
+CMD ["sh", "-c", "exec gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS:-1} --bind 0.0.0.0:8000 --timeout 300"]

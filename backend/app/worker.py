@@ -26,17 +26,17 @@ celery_app.conf.update(
 )
 
 @celery_app.task(bind=True, max_retries=3)
-def process_file_task(self, file_path: str, filename: str, content_type: str, job_id: str):
+def process_file_task(self, file_path: str, filename: str, content_type: str, job_id: str, owner_id: str = ""):
     from app.rag.ingestion import ingestion_pipeline
     try:
-        asyncio.run(ingestion_pipeline.process_file(file_path, filename, content_type, job_id))
+        asyncio.run(ingestion_pipeline.process_file(file_path, filename, content_type, job_id, owner_id))
     except Exception as exc:
         raise self.retry(exc=exc, countdown=2 ** self.request.retries)
 
 @celery_app.task(bind=True, max_retries=3)
-def process_url_task(self, url: str, job_id: str):
+def process_url_task(self, url: str, job_id: str, owner_id: str = ""):
     from app.rag.ingestion import ingestion_pipeline
     try:
-        asyncio.run(ingestion_pipeline.process_url(url, job_id))
+        asyncio.run(ingestion_pipeline.process_url(url, job_id, owner_id))
     except Exception as exc:
         raise self.retry(exc=exc, countdown=2 ** self.request.retries)

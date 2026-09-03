@@ -4,7 +4,7 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
-// Request interceptor — always attach the API key.
+// Request interceptor — attach API key and Bearer JWT token.
 // In production, Nginx injects X-API-Key server-side via proxy_set_header.
 // In dev (vite proxy or direct), we read it from the VITE_API_KEY env var.
 // We send it here too so the dev server (which bypasses Nginx) works correctly.
@@ -13,18 +13,31 @@ api.interceptors.request.use((config) => {
   if (apiKey) {
     config.headers['X-API-Key'] = apiKey;
   }
+
+  const token = localStorage.getItem('access_token') || localStorage.getItem('token');
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+
   return config;
 });
 
-// Response interceptor — log errors and retry once on 429.
+// Response interceptor — reset auth on 401, retry once on 429, log errors.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     console.error('API Error:', error.response?.data || error.message);
 
+    if (error.response?.status === 401) {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user_email');
+      window.dispatchEvent(new CustomEvent('auth:logout'));
+    }
+
     const originalRequest = error.config;
 
-    if (error.response?.status === 429 && !originalRequest._retry) {
+    if (error.response?.status === 429 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       console.warn('Rate limit hit. Retrying in 2 seconds…');
       await new Promise((resolve) => setTimeout(resolve, 2000));
