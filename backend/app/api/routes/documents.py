@@ -9,7 +9,7 @@ from app.rag.vectorstore.chroma_store import delete_document, get_document_paren
 from app.rag.vectorstore.bm25_store import get_bm25_store
 from app.core.exceptions import DocumentTooLargeError
 from app.core.cache import get_cache, delete_cache
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, UPLOAD_RATE_LIMIT, URL_RATE_LIMIT
 import structlog
 import asyncio
 
@@ -23,7 +23,7 @@ class URLUploadRequest(BaseModel):
 
 
 @router.post("/upload")
-@limiter.limit("3/minute")
+@limiter.limit(UPLOAD_RATE_LIMIT)
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
@@ -78,7 +78,7 @@ async def upload_document(
 
 
 @router.post("/url")
-@limiter.limit("2/minute")
+@limiter.limit(URL_RATE_LIMIT)
 async def upload_url(
     body: URLUploadRequest,
     request: Request,

@@ -72,3 +72,19 @@ backend/neo4j_data/
 browser_test.py
 proof_of_success.png
 test.js
+test_fts5.py
+resume-final.md
+
+# Auth DB (SQLite user store)
+backend/auth_data/
+auth_data/
+
+# Test venvs
+backend/.venv-test/
+.venv-test/
+
+# Load test results (regenerated per run)
+backend/loadtest/results/*.csv
+
+# Agents/tools scratch
+.agents/

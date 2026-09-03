@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import List
 
 from app.rag.pipeline import pipeline
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, CHAT_RATE_LIMIT
 from app.core.auth import get_current_user
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -18,7 +18,7 @@ class ChatRequest(BaseModel):
     chat_history: List[ChatMessage] = Field(default=[], max_length=20)
 
 @router.post("")
-@limiter.limit("5/minute")
+@limiter.limit(CHAT_RATE_LIMIT)
 async def chat(
     body: ChatRequest,
     request: Request,
@@ -29,7 +29,7 @@ async def chat(
     return result
 
 @router.post("/stream")
-@limiter.limit("5/minute")
+@limiter.limit(CHAT_RATE_LIMIT)
 async def chat_stream(
     body: ChatRequest,
     request: Request,
